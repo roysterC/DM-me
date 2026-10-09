@@ -1,6 +1,6 @@
 // Clicks through the whole app in Chromium and saves screenshots.
 // Start a server with fake replies first:
-//   DATA_DIR=/tmp/dmme-e2e DM_ME_FAKE_AI=1 ADMIN_USERNAMES=maya PORT=3456 npm start
+//   DATA_DIR=/tmp/dmme-e2e DM_ME_FAKE_AI=1 ADMIN_PASSWORD=letmein PORT=3456 npm start
 // then: node scripts/e2e.mjs [baseUrl] [outDir]
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,7 +23,7 @@ const context = await browser.newContext({
 const page = await context.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
-page.on('console', (m) => m.type() === 'error' && !m.text().includes('401') && errors.push(m.text()));
+page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 
 const shot = async (name) => {
   await page.waitForTimeout(250);
@@ -32,13 +32,8 @@ const shot = async (name) => {
 };
 const step = (label) => console.log(`- ${label}`);
 
-step('sign up');
-await page.goto(`${base}/login`);
-await shot('01-login');
-await page.getByRole('link', { name: 'Sign up' }).click();
-await page.getByLabel('Username').fill('maya');
-await page.getByLabel('Password').fill('correct horse');
-await page.getByRole('button', { name: 'Sign up' }).click();
+step('open the chat (no sign-up)');
+await page.goto(base);
 await page.getByText('Hey, I’m Nova').waitFor();
 await shot('02-chat-empty');
 
@@ -110,23 +105,37 @@ await page.getByText('You replied to their story').waitFor();
 await page.waitForTimeout(3000);
 await shot('13-story-reply');
 
-step('profile sheet and admin');
-await page.getByRole('button', { name: 'About Nova' }).click();
-await page.getByRole('dialog', { name: 'About Nova' }).waitFor();
-await shot('14-profile');
-await page.getByRole('link', { name: 'Manage stories' }).click();
-await page.getByRole('heading', { name: 'Nova’s stories' }).waitFor();
-await shot('15-admin');
+step('admin: unlock, camera roll, stories');
+await page.goto(`${base}/admin`);
+await page.getByLabel('Admin password').fill('letmein');
+await page.getByRole('button', { name: 'Unlock' }).click();
+await page.getByText('Sample photo').first().waitFor();
+await page.locator('input[type=file]').setInputFiles(path.resolve('server/assets/coffee.jpg'));
+await page.getByRole('button', { name: 'Add to camera roll' }).click();
+await page.getByRole('heading', { name: '5 photos' }).waitFor({ timeout: 10_000 });
+await shot('14-admin-camera-roll');
+await page.getByRole('tab', { name: 'Stories' }).click();
 await page.getByRole('radio', { name: 'Text story' }).click();
 await page.getByLabel('Text').fill('New this week: ask me for a 3-day itinerary');
 await page.getByRole('button', { name: 'Post story' }).click();
 await page.getByText('New this week').waitFor();
+await shot('15-admin-stories');
 await page.getByRole('link', { name: 'Back to chat' }).click();
+
+step('profile sheet and delete chat');
+await page.getByRole('button', { name: 'About Nova' }).click();
+const sheet = page.getByRole('dialog', { name: 'About Nova' });
+await sheet.waitFor();
+await sheet.getByRole('button', { name: 'Delete chat' }).click();
+await shot('16-delete-confirm');
+await sheet.getByRole('button', { name: 'Delete chat' }).click();
+await sheet.waitFor({ state: 'detached' });
+await page.getByText('You replied to their story').waitFor({ state: 'detached' });
 
 step('light mode');
 await page.emulateMedia({ colorScheme: 'light' });
 await page.getByText('Hey, I’m Nova').waitFor();
-await shot('16-light');
+await shot('17-light');
 
 await browser.close();
 if (errors.length) {

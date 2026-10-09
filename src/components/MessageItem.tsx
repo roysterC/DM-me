@@ -78,11 +78,18 @@ function renderContent(m: UiMessage, radius: string, on: Pick<Props, 'onOpenEphe
   }
 
   const p = m.photo;
+  if (p.mode === 'keep' && !p.url) {
+    return (
+      <div className="photo-gone" style={style}>
+        Photo unavailable
+      </div>
+    );
+  }
   if (p.mode === 'keep') {
     const ratio = p.width && p.height ? `${p.width} / ${p.height}` : '4 / 5';
     return (
       <button type="button" className="photo-kept" style={{ ...style, aspectRatio: ratio }} onClick={() => on.onOpenKept(m)} aria-label="Open photo">
-        {p.url && <img src={p.url} alt={mine ? 'Photo you sent' : 'Photo from Nova'} loading="lazy" />}
+        <img src={p.url!} alt={mine ? 'Photo you sent' : 'Photo from Nova'} loading="lazy" />
       </button>
     );
   }

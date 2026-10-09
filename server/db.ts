@@ -5,11 +5,11 @@ import type { PhotoMode, Sender, StoryBg } from '../shared/types';
 
 export type DB = Database.Database;
 
-export interface UserRow {
+export interface VisitorRow {
   id: number;
-  username: string;
-  password_hash: string;
+  token_hash: string;
   created_at: string;
+  last_seen_at: string;
 }
 
 export interface MessageRow {
@@ -18,7 +18,7 @@ export interface MessageRow {
   sender: Sender;
   kind: 'text' | 'photo' | 'story_reply';
   text: string | null;
-  media_file: string | null;
+  media_key: string | null;
   media_mime: string | null;
   media_width: number | null;
   media_height: number | null;
@@ -34,9 +34,8 @@ export interface MessageRow {
 
 export interface StoryRow {
   id: number;
-  persona_id: string;
   kind: 'photo' | 'text';
-  media_file: string | null;
+  media_key: string | null;
   media_mime: string | null;
   caption: string | null;
   bg: StoryBg | null;
@@ -44,26 +43,29 @@ export interface StoryRow {
   expires_at: string;
 }
 
+export interface LibraryPhotoRow {
+  id: number;
+  media_key: string;
+  media_mime: string;
+  width: number | null;
+  height: number | null;
+  description: string;
+  created_at: string;
+  hidden: number;
+}
+
 const MIGRATIONS: string[] = [
   `
-  CREATE TABLE users (
+  CREATE TABLE visitors (
     id INTEGER PRIMARY KEY,
-    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    password_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-  CREATE TABLE sessions (
-    token_hash TEXT PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL
+    last_seen_at TEXT NOT NULL
   );
   CREATE TABLE conversations (
     id INTEGER PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    persona_id TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    UNIQUE (user_id, persona_id)
+    visitor_id INTEGER NOT NULL UNIQUE REFERENCES visitors(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL
   );
   CREATE TABLE messages (
     id INTEGER PRIMARY KEY,
@@ -71,7 +73,7 @@ const MIGRATIONS: string[] = [
     sender TEXT NOT NULL CHECK (sender IN ('user', 'ai')),
     kind TEXT NOT NULL CHECK (kind IN ('text', 'photo', 'story_reply')),
     text TEXT,
-    media_file TEXT,
+    media_key TEXT,
     media_mime TEXT,
     media_width INTEGER,
     media_height INTEGER,
@@ -87,26 +89,42 @@ const MIGRATIONS: string[] = [
   CREATE INDEX messages_by_conversation ON messages (conversation_id, id);
   CREATE TABLE stories (
     id INTEGER PRIMARY KEY,
-    persona_id TEXT NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('photo', 'text')),
-    media_file TEXT,
+    media_key TEXT,
     media_mime TEXT,
     caption TEXT,
     bg TEXT,
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL
   );
-  CREATE INDEX stories_by_persona ON stories (persona_id, expires_at);
+  CREATE INDEX stories_by_expiry ON stories (expires_at);
   CREATE TABLE story_views (
     story_id INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    visitor_id INTEGER NOT NULL REFERENCES visitors(id) ON DELETE CASCADE,
     viewed_at TEXT NOT NULL,
-    PRIMARY KEY (story_id, user_id)
+    PRIMARY KEY (story_id, visitor_id)
   );
   CREATE TABLE story_likes (
     story_id INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    PRIMARY KEY (story_id, user_id)
+    visitor_id INTEGER NOT NULL REFERENCES visitors(id) ON DELETE CASCADE,
+    PRIMARY KEY (story_id, visitor_id)
+  );
+  CREATE TABLE library_photos (
+    id INTEGER PRIMARY KEY,
+    media_key TEXT NOT NULL UNIQUE,
+    media_mime TEXT NOT NULL,
+    width INTEGER,
+    height INTEGER,
+    description TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    -- Removed from the camera roll but still shown in chats that received it.
+    hidden INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE reply_counts (
+    visitor_id INTEGER NOT NULL REFERENCES visitors(id) ON DELETE CASCADE,
+    day TEXT NOT NULL,
+    count INTEGER NOT NULL,
+    PRIMARY KEY (visitor_id, day)
   );
   `,
 ];
@@ -120,6 +138,10 @@ export function openDb(dataDir: string): DB {
   const db = new Database(file);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  const hasOldSchema = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'").get();
+  if (hasOldSchema) {
+    throw new Error(`${file} is from an earlier version with accounts. Delete it (and the data directory) to start fresh.`);
+  }
   migrate(db);
   return db;
 }

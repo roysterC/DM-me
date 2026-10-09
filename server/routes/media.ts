@@ -1,45 +1,28 @@
 import { Hono } from 'hono';
-import type { Context } from 'hono';
-import type { AppEnv } from '../auth';
-import { requireUser } from '../auth';
-import { conversationFor, getMessage } from '../chat';
-import { activeStoryMap } from '../stories';
 import type { Deps } from '../app';
+import { mimeFromName, sniffImage } from '../media';
 
-export function mediaRoutes({ db, media }: Deps) {
-  const app = new Hono<AppEnv>();
+/**
+ * Serves photos stored on this server (bundled samples, or uploads when no
+ * bucket is configured) through signed, expiring links made by MediaStore.url.
+ * With a bucket, browsers load photos from the bucket directly instead.
+ */
+export function mediaRoutes({ media }: Deps) {
+  const app = new Hono();
 
-  const send = (c: Context, ref: string, mime: string, cache: string) => {
-    const data = media.read(ref);
+  app.get('/f', async (c) => {
+    const key = c.req.query('k') ?? '';
+    const exp = Number(c.req.query('e'));
+    if (!media.verify(key, exp, c.req.query('s') ?? '')) return c.json({ error: 'This link has expired.' }, 410);
+    const data = await media.read(key);
     if (!data) return c.json({ error: 'File not found.' }, 404);
+    const remaining = Math.max(0, exp - Math.floor(Date.now() / 1000));
     return c.body(new Uint8Array(data), 200, {
-      'Content-Type': mime,
-      'Cache-Control': cache,
+      'Content-Type': sniffImage(data) ?? mimeFromName(key) ?? 'application/octet-stream',
+      // Short-lived links are view-once photos: never cache those.
+      'Cache-Control': remaining < 300 ? 'no-store' : `private, max-age=${Math.min(remaining, 3600)}`,
       'X-Content-Type-Options': 'nosniff',
     });
-  };
-
-  // Single-use links for view-once and replay photos. Deliberately not cached.
-  app.get('/t/:token', requireUser(db), (c) => {
-    const entry = media.redeemToken(c.req.param('token'));
-    if (!entry) return c.json({ error: 'This link has expired.' }, 410);
-    return send(c, entry.file, entry.mime, 'no-store');
-  });
-
-  // Photos kept in the chat, for the conversation's owner only.
-  app.get('/message/:id', requireUser(db), (c) => {
-    const conversationId = conversationFor(db, c.get('user').id);
-    const row = getMessage(db, conversationId, Number(c.req.param('id')));
-    if (!row || row.kind !== 'photo' || row.photo_mode !== 'keep' || !row.media_file) {
-      return c.json({ error: 'Photo not found.' }, 404);
-    }
-    return send(c, row.media_file, row.media_mime ?? 'image/jpeg', 'private, max-age=86400');
-  });
-
-  app.get('/story/:id', requireUser(db), (c) => {
-    const story = activeStoryMap(db).get(Number(c.req.param('id')));
-    if (!story || !story.media_file) return c.json({ error: 'Story not found.' }, 404);
-    return send(c, story.media_file, story.media_mime ?? 'image/jpeg', 'private, max-age=3600');
   });
 
   return app;

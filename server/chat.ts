@@ -1,23 +1,24 @@
 import type { MessageDTO, StoryRefDTO } from '../shared/types';
 import { buildConversation } from './ai/context';
-import { CAMERA_ROLL, GREETING, NOVA, systemPrompt } from './ai/nova';
+import { GREETING, systemPrompt } from './ai/nova';
 import type { Responder } from './ai/responder';
-import type { DB, MessageRow, StoryRow, UserRow } from './db';
+import type { DB, MessageRow, StoryRow } from './db';
 import { nowIso } from './db';
+import { cameraRoll } from './library';
 import type { MediaStore } from './media';
 
 const HISTORY_LIMIT = 80;
 
-export function conversationFor(db: DB, userId: number): number {
-  const existing = db
-    .prepare('SELECT id FROM conversations WHERE user_id = ? AND persona_id = ?')
-    .get(userId, NOVA.id) as { id: number } | undefined;
+export function conversationFor(db: DB, visitorId: number): number {
+  const existing = db.prepare('SELECT id FROM conversations WHERE visitor_id = ?').get(visitorId) as
+    | { id: number }
+    | undefined;
   if (existing) return existing.id;
   const now = nowIso();
   return db.transaction(() => {
     const { lastInsertRowid } = db
-      .prepare('INSERT INTO conversations (user_id, persona_id, created_at) VALUES (?, ?, ?)')
-      .run(userId, NOVA.id, now);
+      .prepare('INSERT INTO conversations (visitor_id, created_at) VALUES (?, ?)')
+      .run(visitorId, now);
     const id = Number(lastInsertRowid);
     db.prepare(
       "INSERT INTO messages (conversation_id, sender, kind, text, created_at) VALUES (?, 'ai', 'text', ?, ?)",
@@ -45,7 +46,16 @@ export function maxViews(mode: string | null): number | null {
   return null;
 }
 
-export function toMessageDTO(r: MessageRow, activeStories: Map<number, StoryRow>): MessageDTO {
+/** Keys of uploaded photos that only this conversation uses (Nova's camera roll is shared). */
+export function ownedUploads(rows: MessageRow[]): string[] {
+  return rows.filter((r) => r.sender === 'user' && r.media_key?.startsWith('uploads/')).map((r) => r.media_key!);
+}
+
+export async function toMessageDTO(
+  r: MessageRow,
+  activeStories: Map<number, StoryRow>,
+  media: MediaStore,
+): Promise<MessageDTO> {
   let story: StoryRefDTO | null = null;
   if (r.kind === 'story_reply' && r.story_snapshot) {
     const snap = JSON.parse(r.story_snapshot) as Pick<StoryRow, 'kind' | 'caption' | 'bg'>;
@@ -56,14 +66,14 @@ export function toMessageDTO(r: MessageRow, activeStories: Map<number, StoryRow>
       caption: snap.caption,
       bg: snap.bg,
       available: !!live,
-      thumbUrl: live && live.kind === 'photo' ? `/api/media/story/${live.id}` : null,
+      thumbUrl: live?.kind === 'photo' && live.media_key ? await media.url(live.media_key) : null,
     };
   }
   const photo =
     r.kind === 'photo'
       ? {
           mode: r.photo_mode ?? 'keep',
-          url: r.photo_mode === 'keep' && r.media_file ? `/api/media/message/${r.id}` : null,
+          url: r.photo_mode === 'keep' && r.media_key ? await media.url(r.media_key) : null,
           width: r.media_width,
           height: r.media_height,
           viewCount: r.view_count,
@@ -84,10 +94,8 @@ export function toMessageDTO(r: MessageRow, activeStories: Map<number, StoryRow>
   };
 }
 
-export class ReplyInProgress extends Error {}
-
 /**
- * Generates Nova's reply to everything the user has sent since her last
+ * Generates Nova's reply to everything the visitor has sent since her last
  * message. One reply runs per conversation at a time.
  */
 export class ReplyService {
@@ -99,57 +107,63 @@ export class ReplyService {
     private responder: Responder,
   ) {}
 
-  async replyTo(user: UserRow, conversationId: number, timeZone: string): Promise<void> {
+  async replyTo(conversationId: number, timeZone: string): Promise<boolean> {
     const inflight = this.running.get(conversationId);
     if (inflight) {
       await inflight.catch(() => {});
-      return;
+      return false;
     }
-    const job = this.run(user, conversationId, timeZone).finally(() => this.running.delete(conversationId));
+    let replied = false;
+    const job = this.run(conversationId, timeZone)
+      .then((r) => {
+        replied = r;
+      })
+      .finally(() => this.running.delete(conversationId));
     this.running.set(conversationId, job);
     await job;
+    return replied;
   }
 
-  private async run(user: UserRow, conversationId: number, timeZone: string) {
+  private async run(conversationId: number, timeZone: string): Promise<boolean> {
     const rows = listMessages(this.db, conversationId, HISTORY_LIMIT);
     const last = rows[rows.length - 1];
-    if (!last || last.sender !== 'user') return;
+    if (!last || last.sender !== 'user') return false;
 
     this.db
       .prepare("UPDATE messages SET read_at = ? WHERE conversation_id = ? AND sender = 'user' AND read_at IS NULL")
       .run(nowIso(), conversationId);
 
-    const { messages, opening } = buildConversation(rows, this.media, timeZone);
-    const reply = await this.responder.reply({ system: systemPrompt(user.username), messages });
+    const { roll, byRef, refByKey } = cameraRoll(this.db);
+    const { messages, opening } = await buildConversation(rows, this.media, timeZone, refByKey);
+    const reply = await this.responder.reply({ system: systemPrompt(roll), messages, photoRefs: [...byRef.keys()] });
 
     const insertText = this.db.prepare(
       "INSERT INTO messages (conversation_id, sender, kind, text, created_at) VALUES (?, 'ai', 'text', ?, ?)",
     );
     const insertPhoto = this.db.prepare(
-      `INSERT INTO messages (conversation_id, sender, kind, media_file, media_mime, media_width, media_height, photo_mode, created_at)
-       VALUES (?, 'ai', 'photo', ?, 'image/jpeg', ?, ?, ?, ?)`,
+      `INSERT INTO messages (conversation_id, sender, kind, media_key, media_mime, media_width, media_height, photo_mode, created_at)
+       VALUES (?, 'ai', 'photo', ?, ?, ?, ?, ?, ?)`,
     );
-    const opened = this.db.prepare('SELECT media_file FROM messages WHERE id = ?');
+    const keyOf = this.db.prepare('SELECT media_key FROM messages WHERE id = ?');
     const markOpened = this.db.prepare('UPDATE messages SET view_count = view_count + 1 WHERE id = ?');
 
-    const filesToDelete: string[] = [];
+    const toDelete: string[] = [];
     this.db.transaction(() => {
       // Nova has now seen the view-once photos; they can't be opened again.
       for (const id of opening) {
         markOpened.run(id);
-        const row = opened.get(id) as { media_file: string | null } | undefined;
-        if (row?.media_file) filesToDelete.push(row.media_file);
+        const row = keyOf.get(id) as { media_key: string | null } | undefined;
+        if (row?.media_key) toDelete.push(row.media_key);
       }
       if (reply.heartLatest) this.db.prepare('UPDATE messages SET heart_by_ai = 1 WHERE id = ?').run(last.id);
 
       // Text bubbles first ("Like this:"), then the photo.
       const now = nowIso();
       for (const text of reply.messages) insertText.run(conversationId, text, now);
-      if (reply.photo) {
-        const p = CAMERA_ROLL.find((x) => x.id === reply.photo!.id)!;
-        insertPhoto.run(conversationId, p.file, p.width, p.height, reply.photo.mode, now);
-      }
+      const p = reply.photo ? byRef.get(reply.photo.ref) : undefined;
+      if (reply.photo && p) insertPhoto.run(conversationId, p.media_key, p.media_mime, p.width, p.height, reply.photo.mode, now);
     })();
-    for (const f of filesToDelete) this.media.remove(f);
+    await Promise.all(toDelete.map((k) => this.media.remove(k).catch((err) => console.error('Delete failed', k, err))));
+    return true;
   }
 }

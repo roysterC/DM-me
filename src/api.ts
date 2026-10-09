@@ -1,4 +1,4 @@
-import type { ChatDTO, MessageDTO, OpenPhotoDTO, PhotoMode, StoryBg, StoryDTO, UserDTO } from '../shared/types';
+import type { AdminStoryDTO, ChatDTO, LibraryPhotoDTO, MessageDTO, OpenPhotoDTO, PhotoMode, StoryBg, StoryDTO } from '../shared/types';
 
 export class ApiError extends Error {
   constructor(
@@ -28,21 +28,13 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 }
 
 export const api = {
-  me: () => request<{ user: UserDTO }>('GET', '/api/auth/me'),
-  login: (username: string, password: string) =>
-    request<{ user: UserDTO }>('POST', '/api/auth/login', { username, password }),
-  signup: (username: string, password: string) =>
-    request<{ user: UserDTO }>('POST', '/api/auth/signup', { username, password }),
-  logout: () => request<{ ok: true }>('POST', '/api/auth/logout'),
-
   chat: () => request<ChatDTO>('GET', '/api/chat'),
+  deleteChat: () => request<ChatDTO>('DELETE', '/api/chat'),
   sendText: (text: string) => request<{ message: MessageDTO }>('POST', '/api/chat/messages', { text }),
-  sendPhoto: (blob: Blob, mode: PhotoMode, width: number, height: number) => {
+  sendPhoto: (blob: Blob, mode: PhotoMode) => {
     const form = new FormData();
     form.set('photo', blob, 'photo.jpg');
     form.set('mode', mode);
-    form.set('width', String(width));
-    form.set('height', String(height));
     return request<{ message: MessageDTO }>('POST', '/api/chat/photos', form);
   },
   reply: () =>
@@ -57,16 +49,30 @@ export const api = {
     request<{ message: MessageDTO }>('POST', `/api/stories/${id}/reply`, { text }),
 
   admin: {
-    stories: () => request<{ stories: (StoryDTO & { active: boolean; views: number })[] }>('GET', '/api/admin/stories'),
-    create: (input: { kind: 'photo' | 'text'; caption: string; bg: StoryBg; hours: number; photo?: Blob }) => {
+    me: () => request<{ enabled: boolean; admin: boolean; storage: 'local' | 's3' }>('GET', '/api/admin/me'),
+    login: (password: string) => request<{ ok: true }>('POST', '/api/admin/login', { password }),
+    logout: () => request<{ ok: true }>('POST', '/api/admin/logout'),
+    stories: () => request<{ stories: AdminStoryDTO[] }>('GET', '/api/admin/stories'),
+    createStory: (input: { kind: 'photo' | 'text'; caption: string; bg: StoryBg; hours: number; photo?: Blob }) => {
       const form = new FormData();
       form.set('kind', input.kind);
       form.set('caption', input.caption);
       form.set('bg', input.bg);
       form.set('hours', String(input.hours));
       if (input.photo) form.set('photo', input.photo, 'story.jpg');
-      return request<{ story: StoryDTO }>('POST', '/api/admin/stories', form);
+      return request<{ story: AdminStoryDTO }>('POST', '/api/admin/stories', form);
     },
-    remove: (id: number) => request<{ ok: true }>('DELETE', `/api/admin/stories/${id}`),
+    removeStory: (id: number) => request<{ ok: true }>('DELETE', `/api/admin/stories/${id}`),
+    photos: () => request<{ photos: LibraryPhotoDTO[] }>('GET', '/api/admin/photos'),
+    addPhotos: (photos: Blob[], description: string) => {
+      const form = new FormData();
+      photos.forEach((p, i) => form.append('photo', p, `photo-${i}.jpg`));
+      form.set('description', description);
+      return request<{ photos: LibraryPhotoDTO[] }>('POST', '/api/admin/photos', form);
+    },
+    describePhoto: (id: number, description: string) =>
+      request<{ ok: true }>('PATCH', `/api/admin/photos/${id}`, { description }),
+    removePhoto: (id: number) => request<{ ok: true }>('DELETE', `/api/admin/photos/${id}`),
+    syncPhotos: () => request<{ added: number; remaining: number; skipped: string[] }>('POST', '/api/admin/photos/sync'),
   },
 };

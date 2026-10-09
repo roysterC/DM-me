@@ -4,12 +4,6 @@ export type Sender = 'user' | 'ai';
 export type PhotoMode = 'keep' | 'once' | 'replay';
 export type StoryBg = 'violet' | 'sunset' | 'ocean' | 'forest';
 
-export interface UserDTO {
-  id: number;
-  username: string;
-  isAdmin: boolean;
-}
-
 export interface PersonaDTO {
   id: string;
   name: string;
@@ -20,7 +14,7 @@ export interface PersonaDTO {
 
 export interface PhotoDTO {
   mode: PhotoMode;
-  /** Present for kept photos only. View-once and replay photos are opened through `/open`. */
+  /** Kept photos only, and null when the file is gone. View-once and replay photos are opened through `/open`. */
   url: string | null;
   width: number | null;
   height: number | null;
@@ -69,6 +63,23 @@ export interface StoryDTO {
   expiresAt: string;
   seen: boolean;
   liked: boolean;
+}
+
+export interface AdminStoryDTO extends StoryDTO {
+  active: boolean;
+  views: number;
+}
+
+/** A photo in Nova's camera roll: she picks from these when she sends a photo. */
+export interface LibraryPhotoDTO {
+  id: number;
+  url: string;
+  width: number | null;
+  height: number | null;
+  description: string;
+  /** One of the bundled sample photos rather than an upload. */
+  sample: boolean;
+  createdAt: string;
 }
 
 export interface OpenPhotoDTO {

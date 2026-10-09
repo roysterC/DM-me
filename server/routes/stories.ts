@@ -1,18 +1,16 @@
 import { Hono } from 'hono';
-import type { AppEnv } from '../auth';
-import { requireUser } from '../auth';
+import type { Deps } from '../app';
 import { conversationFor, getMessage, toMessageDTO } from '../chat';
 import { nowIso } from '../db';
+import type { AppEnv } from '../identity';
 import { activeStoryMap, ensureStories, listStoriesFor } from '../stories';
-import type { Deps } from '../app';
 
-export function storyRoutes({ db, config }: Deps) {
+export function storyRoutes({ db, config, media }: Deps) {
   const app = new Hono<AppEnv>();
-  app.use('*', requireUser(db));
 
-  app.get('/', (c) => {
+  app.get('/', async (c) => {
     ensureStories(db, config.autoStories);
-    return c.json({ stories: listStoriesFor(db, c.get('user').id) });
+    return c.json({ stories: await listStoriesFor(db, media, c.get('visitor').id) });
   });
 
   const liveStory = (id: number) => activeStoryMap(db).get(id);
@@ -20,9 +18,9 @@ export function storyRoutes({ db, config }: Deps) {
   app.post('/:id/view', (c) => {
     const story = liveStory(Number(c.req.param('id')));
     if (!story) return c.json({ error: 'Story not found.' }, 404);
-    db.prepare('INSERT OR IGNORE INTO story_views (story_id, user_id, viewed_at) VALUES (?, ?, ?)').run(
+    db.prepare('INSERT OR IGNORE INTO story_views (story_id, visitor_id, viewed_at) VALUES (?, ?, ?)').run(
       story.id,
-      c.get('user').id,
+      c.get('visitor').id,
       nowIso(),
     );
     return c.json({ ok: true });
@@ -32,10 +30,11 @@ export function storyRoutes({ db, config }: Deps) {
     const story = liveStory(Number(c.req.param('id')));
     if (!story) return c.json({ error: 'Story not found.' }, 404);
     const body = await c.req.json<{ on?: boolean }>().catch(() => ({}) as never);
+    const visitorId = c.get('visitor').id;
     if (body.on) {
-      db.prepare('INSERT OR IGNORE INTO story_likes (story_id, user_id) VALUES (?, ?)').run(story.id, c.get('user').id);
+      db.prepare('INSERT OR IGNORE INTO story_likes (story_id, visitor_id) VALUES (?, ?)').run(story.id, visitorId);
     } else {
-      db.prepare('DELETE FROM story_likes WHERE story_id = ? AND user_id = ?').run(story.id, c.get('user').id);
+      db.prepare('DELETE FROM story_likes WHERE story_id = ? AND visitor_id = ?').run(story.id, visitorId);
     }
     return c.json({ liked: !!body.on });
   });
@@ -47,7 +46,7 @@ export function storyRoutes({ db, config }: Deps) {
     const body = await c.req.json<{ text?: string }>().catch(() => ({}) as never);
     const text = String(body.text ?? '').trim();
     if (!text || text.length > 2000) return c.json({ error: 'Write a reply first.' }, 400);
-    const conversationId = conversationFor(db, c.get('user').id);
+    const conversationId = conversationFor(db, c.get('visitor').id);
     const snapshot = JSON.stringify({ kind: story.kind, caption: story.caption, bg: story.bg });
     const { lastInsertRowid } = db
       .prepare(
@@ -56,7 +55,7 @@ export function storyRoutes({ db, config }: Deps) {
       )
       .run(conversationId, text, story.id, snapshot, nowIso());
     const row = getMessage(db, conversationId, Number(lastInsertRowid))!;
-    return c.json({ message: toMessageDTO(row, activeStoryMap(db)) });
+    return c.json({ message: await toMessageDTO(row, activeStoryMap(db), media) });
   });
 
   return app;

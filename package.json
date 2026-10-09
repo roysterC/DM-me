@@ -6,8 +6,10 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
     "@hono/node-server": "^2.1.4",
+    "aws4fetch": "^1.0.20",
     "better-sqlite3": "^13.0.3",
     "hono": "^4.13.13",
+    "image-size": "^2.0.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router-dom": "^7.18.4"

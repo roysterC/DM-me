@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import type { ChatDTO, OpenPhotoDTO, PhotoMode, StoryDTO, UserDTO } from '../../shared/types';
+import type { ChatDTO, OpenPhotoDTO, PhotoMode, StoryDTO } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { Avatar, type RingState } from '../components/Avatar';
 import { CameraSheet } from '../components/CameraSheet';
@@ -20,12 +20,7 @@ const BUBBLE_GAP_MS = 900;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-interface Props {
-  user: UserDTO;
-  onLogout: () => void;
-}
-
-export function ChatPage({ user, onLogout }: Props) {
+export function ChatPage() {
   const [chat, setChat] = useState<Omit<ChatDTO, 'messages'> | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [stories, setStories] = useState<StoryDTO[]>([]);
@@ -203,7 +198,7 @@ export function ChatPage({ user, onLogout }: Props) {
         maxViews: mode === 'once' ? 1 : mode === 'replay' ? 2 : null,
       },
     });
-    deliver(temp, () => api.sendPhoto(image.blob, mode, image.width, image.height));
+    deliver(temp, () => api.sendPhoto(image.blob, mode));
   };
 
   const pickFromLibrary = async (file: File | undefined) => {
@@ -462,13 +457,18 @@ export function ChatPage({ user, onLogout }: Props) {
       {info && (
         <InfoSheet
           persona={persona}
-          user={user}
           ring={ring}
           onViewStory={openStories}
           onClose={() => setInfo(false)}
-          onLogout={async () => {
-            await api.logout().catch(() => {});
-            onLogout();
+          onDeleteChat={async () => {
+            const fresh = await api.deleteChat();
+            clearTimeout(replyTimer.current);
+            setInfo(false);
+            setHidden(new Set());
+            setReplyError(null);
+            setSeenNow(false);
+            messagesRef.current = fresh.messages;
+            setMessages(fresh.messages);
           }}
         />
       )}

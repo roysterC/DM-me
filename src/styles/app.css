@@ -1196,3 +1196,47 @@ a {
     animation: none;
   }
 }
+
+.sheet-note {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.admin-help {
+  margin: 16px 0 12px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--muted);
+}
+.admin-body > .mode-switch {
+  margin-bottom: 4px;
+}
+.admin-desc {
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--chip-line);
+  background: var(--field);
+  font-size: 14px;
+  line-height: 19px;
+  resize: vertical;
+}
+.admin-body code {
+  font-size: 13px;
+  color: var(--fg);
+}
+.admin-form + .admin-form,
+.admin-body > .mode-switch + .admin-form {
+  margin-top: 16px;
+}
+.photo-gone {
+  padding: 10px 14px;
+  border-radius: 18px;
+  border: 1px solid var(--spent-line);
+  font-size: 13px;
+  color: var(--muted);
+}
