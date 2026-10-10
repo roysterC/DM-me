@@ -1,11 +1,11 @@
 import type { LibraryPhotoDTO } from '../shared/types';
-import { SAMPLE_PHOTOS, type RollEntry } from './ai/nova';
+import { SAMPLE_PHOTOS, type RollEntry } from './ai/persona';
 import type { Responder } from './ai/responder';
 import type { DB, LibraryPhotoRow } from './db';
 import { nowIso } from './db';
 import { dimensions, type MediaStore, sniffImage } from './media';
 
-/** How many photos Nova is told about per reply; the newest win when the roll is bigger. */
+/** How many photos Alisa is told about per reply; the newest win when the roll is bigger. */
 export const ROLL_LIMIT = 150;
 const SYNC_BATCH = 40;
 

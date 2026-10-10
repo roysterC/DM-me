@@ -74,8 +74,8 @@ describe('visitors', () => {
     const maya = t.browser();
     const sam = t.browser();
     const first = await json<ChatDTO>(await maya('GET', '/api/chat'));
-    expect(first.messages).toHaveLength(1);
-    expect(first.messages[0].sender).toBe('ai');
+    // Alisa doesn't text first.
+    expect(first.messages).toHaveLength(0);
 
     await maya('POST', '/api/chat/messages', { text: 'just for me' });
     const samChat = await json<ChatDTO>(await sam('GET', '/api/chat'));
@@ -101,7 +101,7 @@ describe('visitors', () => {
     const key = (t.db.prepare('SELECT media_key FROM messages WHERE id = ?').get(sent.id) as MessageRow).media_key!;
     expect(await t.deps.media.storage.get(key)).not.toBeNull();
     const after = await json<ChatDTO>(await me('DELETE', '/api/chat'));
-    expect(after.messages).toHaveLength(1);
+    expect(after.messages).toHaveLength(0);
     expect(await t.deps.media.storage.get(key)).toBeNull();
   });
 });
@@ -117,8 +117,9 @@ describe('chat', () => {
 
     expect(t.fake.calls).toHaveLength(1);
     const sent = t.fake.calls[0].messages;
-    expect(sent[0]).toEqual({ role: 'user', content: '(opened the chat)' });
-    expect(sent.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    // The visitor opens the conversation; both texts arrive together as one turn.
+    expect(sent.map((m) => m.role)).toEqual(['user']);
+    expect(JSON.stringify(sent[0].content)).toMatch(/ok be honest.*is it weird/);
     expect(t.fake.calls[0].system).toContain('p1: a baked egg skillet');
     expect(after.messages.at(-1)).toMatchObject({ sender: 'ai', text: 'You said: ok be honest is it weird' });
     expect(after.messages.filter((m) => m.sender === 'user').every((m) => m.readAt)).toBe(true);
@@ -127,7 +128,7 @@ describe('chat', () => {
     expect(t.fake.calls).toHaveLength(1);
   });
 
-  it('says so when Nova is not connected', async () => {
+  it('says so when Alisa is not connected', async () => {
     const t = setup({ connected: false });
     const me = t.browser();
     await me('POST', '/api/chat/messages', { text: 'hi' });
@@ -144,11 +145,13 @@ describe('chat', () => {
     expect((await me('POST', '/api/chat/reply', {})).status).toBe(429);
   });
 
-  it('lets the visitor heart Nova’s messages, and Nova heart theirs', async () => {
+  it('lets the visitor heart Alisa’s messages, and Alisa heart theirs', async () => {
     const t = setup();
     const me = t.browser();
-    const chat = await json<ChatDTO>(await me('GET', '/api/chat'));
-    const res = await me('POST', `/api/chat/messages/${chat.messages[0].id}/heart`, { on: true });
+    await me('POST', '/api/chat/messages', { text: 'hey' });
+    const chat = await json<ChatDTO>(await me('POST', '/api/chat/reply', {}));
+    const reply = chat.messages.find((m) => m.sender === 'ai')!;
+    const res = await me('POST', `/api/chat/messages/${reply.id}/heart`, { on: true });
     expect((await json<{ message: MessageDTO }>(res)).message.heartByUser).toBe(true);
 
     await me('POST', '/api/chat/messages', { text: 'got the job! heart this' });
@@ -158,7 +161,7 @@ describe('chat', () => {
 });
 
 describe('photos', () => {
-  it('shows kept photos to Nova and serves them through signed links', async () => {
+  it('shows kept photos to Alisa and serves them through signed links', async () => {
     const t = setup();
     const me = t.browser();
     const photo = (await json<{ message: MessageDTO }>(await me('POST', '/api/chat/photos', t.photoForm('keep')))).message;
@@ -174,7 +177,7 @@ describe('photos', () => {
     expect((await t.app.request(`http://localhost${url.replace(/s=[^&]+/, 's=forged')}`)).status).toBe(410);
   });
 
-  it('lets Nova see a view-once photo exactly once, then deletes it', async () => {
+  it('lets Alisa see a view-once photo exactly once, then deletes it', async () => {
     const t = setup();
     const me = t.browser();
     const sent = (await json<{ message: MessageDTO }>(await me('POST', '/api/chat/photos', t.photoForm('once')))).message;
@@ -192,7 +195,7 @@ describe('photos', () => {
     expect(second).toContain('view-once photo that you already viewed');
   });
 
-  it('limits opens of photos Nova sends: once means once, replay means twice', async () => {
+  it('limits opens of photos Alisa sends: once means once, replay means twice', async () => {
     const t = setup();
     const me = t.browser();
     await me('POST', '/api/chat/messages', { text: 'send me a photo' });
@@ -214,32 +217,32 @@ describe('photos', () => {
     expect((await me('POST', `/api/chat/messages/${replay.id}/open`)).status).toBe(410);
   });
 
-  it('sends a camera-roll photo the way the admin page says, whatever Nova picks', async () => {
+  it('sends a camera-roll photo the way the admin page says, whatever Alisa picks', async () => {
     const t = setup({ adminPassword: 'open sesame' });
     const admin = t.browser();
     await admin('POST', '/api/admin/login', { password: 'open sesame' });
     const me = t.browser();
-    const novaPhoto = async (text: string) => {
+    const photoFromAlisa = async (text: string) => {
       await me('POST', '/api/chat/messages', { text });
       const chat = await json<ChatDTO>(await me('POST', '/api/chat/reply', {}));
       return chat.messages.filter((m) => m.sender === 'ai' && m.kind === 'photo').at(-1)!;
     };
 
-    // The fake Nova sends the first photo in her roll as view-once.
-    expect((await novaPhoto('send me a photo')).photo?.mode).toBe('once');
+    // The fake Alisa sends the first photo in her roll as view-once.
+    expect((await photoFromAlisa('send me a photo')).photo?.mode).toBe('once');
     const id = Number(t.fake.calls[0].photoRefs[0].slice(1));
     const photos = (await json<{ photos: LibraryPhotoDTO[] }>(await admin('GET', '/api/admin/photos'))).photos;
     expect(photos.find((p) => p.id === id)?.sendMode).toBe('auto');
 
     expect((await admin('PATCH', `/api/admin/photos/${id}`, { sendMode: 'forever' })).status).toBe(400);
     expect((await admin('PATCH', `/api/admin/photos/${id}`, { sendMode: 'keep' })).status).toBe(200);
-    const kept = await novaPhoto('send me a photo');
+    const kept = await photoFromAlisa('send me a photo');
     expect(kept.photo).toMatchObject({ mode: 'keep', maxViews: null });
     expect(kept.photo?.url).toBeTruthy();
 
     await admin('PATCH', `/api/admin/photos/${id}`, { sendMode: 'replay' });
-    expect((await novaPhoto('send me a photo')).photo).toMatchObject({ mode: 'replay', url: null, maxViews: 2 });
-    // Nova is told, so her messages can match how the photo arrives.
+    expect((await photoFromAlisa('send me a photo')).photo).toMatchObject({ mode: 'replay', url: null, maxViews: 2 });
+    // Alisa is told, so her messages can match how the photo arrives.
     expect(t.fake.calls.at(-1)!.system).toContain(`p${id} (always sent as replayable)`);
 
     // Changing the mode leaves the description alone.
@@ -311,7 +314,7 @@ describe('admin', () => {
     expect(live.some((s) => s.id === story.id)).toBe(false);
   });
 
-  it('manages Nova’s camera roll: upload, describe, edit, delete and sync from the bucket', async () => {
+  it('manages Alisa’s camera roll: upload, describe, edit, delete and sync from the bucket', async () => {
     const t = setup({ adminPassword: 'open sesame' });
     const admin = t.browser();
     await admin('POST', '/api/admin/login', { password: 'open sesame' });
@@ -345,7 +348,7 @@ describe('admin', () => {
     photos = await list();
     expect(photos[0].description).toBe('a test photo');
 
-    // Nova is offered exactly the visible camera roll.
+    // Alisa is offered exactly the visible camera roll.
     const me = t.browser();
     await me('POST', '/api/chat/messages', { text: 'hi' });
     await me('POST', '/api/chat/reply', {});
@@ -354,7 +357,7 @@ describe('admin', () => {
 });
 
 describe('buildConversation', () => {
-  it('replays Nova’s turns in her reply format, hearts and photo references included', async () => {
+  it('replays Alisa’s turns in her reply format, hearts and photo references included', async () => {
     const base = {
       conversation_id: 1,
       media_key: null,

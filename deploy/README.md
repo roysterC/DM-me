@@ -76,7 +76,7 @@ Set `DOMAIN`, `ANTHROPIC_API_KEY`, `ADMIN_PASSWORD` and the five `S3_` values. `
 sudo /opt/dm-me/deploy/setup.sh
 ```
 
-It takes a few minutes the first time. When it finishes, open `https://your-domain`. The first visit can take a few seconds while Caddy gets the certificate. Manage Nova at `https://your-domain/admin`.
+It takes a few minutes the first time. When it finishes, open `https://your-domain`. The first visit can take a few seconds while Caddy gets the certificate. Manage Alisa at `https://your-domain/admin`.
 
 ## Updating
 
@@ -87,6 +87,27 @@ sudo /opt/dm-me/deploy/update.sh
 ```
 
 This pulls the code, rebuilds, and restarts the app. The site is unavailable for a few seconds during the restart. If the new version fails to start, the script prints the two commands that put the previous version back.
+
+## Deploy automatically on every push
+
+`.github/workflows/deploy.yml` tests every push to `main` (type check, unit tests, build). If they pass, it logs in to the server and runs `deploy/update.sh`. A failed test or a failed deploy shows as a red run under the repository's **Actions** tab, and the version that was running stays up.
+
+**One-time setup:**
+
+1. Make sure the server can pull without asking for a password. If the repository is private, run `sudo git config --global credential.helper store` and `sudo git -C /opt/dm-me pull` once, entering your GitHub username and token.
+2. On the server, run:
+
+   ```bash
+   sudo /opt/dm-me/deploy/enable-auto-deploy.sh
+   ```
+
+   It creates a `dm-me-deploy` user with a new SSH key. That key can do exactly one thing: run `deploy/update.sh` with no arguments. It can't open a shell, run other commands or forward ports.
+3. Copy the values it prints into GitHub: **Settings → Secrets and variables → Actions → New repository secret**. The names are `VPS_HOST`, `VPS_SSH_KEY` and `VPS_KNOWN_HOSTS`, plus `VPS_PORT` if SSH isn't on port 22.
+4. Push to `main`, or open **Actions → Deploy → Run workflow**, and watch it run.
+
+To change the key (for example if it leaks), run the script again and replace `VPS_SSH_KEY`; the old key stops working at once. To turn automatic deploys off, disable the workflow in the Actions tab or run `sudo userdel -r dm-me-deploy && sudo rm /etc/sudoers.d/dm-me-deploy`.
+
+Anyone who can push to `main` can change what `update.sh` runs on the server, so keep write access to the repository limited to people you'd trust with the server.
 
 ## Day to day
 
@@ -131,7 +152,7 @@ Litestream keeps short-term history and compacts it over time, so recent points 
 - **The page is blank (white screen).** Check `DOMAIN` in `/etc/dm-me/dm-me.env` is only the name, like `dm-me-203-0-113-10.nip.io`, without `https://` or a `/` at the end, then run setup again. (Setup now cleans this up itself.)
 - **Setup says another site already uses your `DOMAIN`.** Two sites can't share a name. Set `DOMAIN` in `/etc/dm-me/dm-me.env` to the name setup suggests (for nip.io, `dm-me-<your IP with dashes>.nip.io`) and run setup again.
 - **Port 3000 is already in use** (another site's app, say). Setup detects this, uses the next free port and saves it as `PORT` in `/etc/dm-me/dm-me.env`. If you set `PORT` yourself, it must be free.
-- **Nova doesn't reply.** Check `ANTHROPIC_API_KEY` in `/etc/dm-me/dm-me.env`, restart, and look at `journalctl -u dm-me -n 50`.
+- **Alisa doesn't reply.** Check `ANTHROPIC_API_KEY` in `/etc/dm-me/dm-me.env`, restart, and look at `journalctl -u dm-me -n 50`.
 - **Backups aren't appearing in the bucket.** Look at `journalctl -u dm-me-backup -n 50`. The R2 token needs **Object Read & Write** on the bucket.
 
 ## What setup puts where
@@ -143,4 +164,5 @@ Litestream keeps short-term history and compacts it over time, so recent points 
 | `/etc/dm-me/litestream.yml` | Backup settings |
 | `/var/lib/dm-me` | The database (the only folder the app can write to) |
 | `/etc/systemd/system/dm-me.service`, `dm-me-backup.service` | The app and backup services, running as the `dmme` user |
+| `/etc/sudoers.d/dm-me-deploy` | Only with automatic deploys: lets the `dm-me-deploy` user run `deploy/update.sh` |
 | `/etc/caddy/sites/dm-me.caddy` | The HTTPS site, imported by one line at the end of your Caddyfile. Your own Caddy sites are left alone |

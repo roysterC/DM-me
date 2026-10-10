@@ -10,7 +10,7 @@ import { STORY_HOURS } from '../stories';
 
 const SEND_MODES: SendMode[] = ['auto', 'once', 'replay', 'keep'];
 
-/** Nova's stories and camera roll, behind ADMIN_PASSWORD. */
+/** Alisa's stories and camera roll, behind ADMIN_PASSWORD. */
 export function adminRoutes({ db, config, media, responder }: Deps) {
   const app = new Hono();
   const attempts = new RateLimiter(10, 10 * 60_000);
@@ -135,7 +135,7 @@ export function adminRoutes({ db, config, media, responder }: Deps) {
     return c.json({ photos: await Promise.all(added.map((r) => toLibraryDTO(r, media))) });
   });
 
-  // Edits a photo's description and/or how Nova sends it.
+  // Edits a photo's description and/or how Alisa sends it.
   app.patch('/photos/:id', async (c) => {
     const body = await c.req.json<{ description?: string; sendMode?: string }>().catch(() => ({}) as never);
     const id = Number(c.req.param('id'));
@@ -146,7 +146,7 @@ export function adminRoutes({ db, config, media, responder }: Deps) {
       return c.json({ error: 'Unknown send mode.' }, 400);
     }
     const description = body.description === undefined ? null : String(body.description).trim().slice(0, 300);
-    if (description === '') return c.json({ error: 'Describe the photo so Nova knows when to send it.' }, 400);
+    if (description === '') return c.json({ error: 'Describe the photo so Alisa knows when to send it.' }, 400);
     db.prepare(
       'UPDATE library_photos SET description = COALESCE(?, description), send_mode = COALESCE(?, send_mode) WHERE id = ?',
     ).run(description, (body.sendMode as SendMode | undefined) ?? null, id);
@@ -158,7 +158,7 @@ export function adminRoutes({ db, config, media, responder }: Deps) {
       | LibraryPhotoRow
       | undefined;
     if (!row) return c.json({ error: 'Not found.' }, 404);
-    // Photos Nova already sent stay in those chats: keep the file and just hide it from her camera roll.
+    // Photos Alisa already sent stay in those chats: keep the file and just hide it from her camera roll.
     // Samples are hidden too, so they aren't added back on the next start.
     const used = db.prepare('SELECT 1 FROM messages WHERE media_key = ? LIMIT 1').get(row.media_key);
     if (used || row.media_key.startsWith('asset:')) {

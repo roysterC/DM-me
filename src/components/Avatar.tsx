@@ -11,7 +11,7 @@ interface Props {
   label?: string;
 }
 
-/** Nova's round avatar, optionally inside Instagram's story ring. */
+/** Alisa's round avatar, optionally inside Instagram's story ring. */
 export function Avatar({ persona, size, ring = 'none', active, onClick, label }: Props) {
   const pad = ring === 'none' ? 0 : size >= 80 ? 3 : 2;
   const inner = size - pad * 2;

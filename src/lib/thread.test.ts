@@ -18,7 +18,7 @@ const msg = (id: number, sender: 'user' | 'ai', at: string, extra: Partial<Messa
 });
 
 describe('buildThread', () => {
-  it('groups runs, puts Nova’s avatar on the last bubble, and adds time breaks after an hour', () => {
+  it('groups runs, puts Alisa’s avatar on the last bubble, and adds time breaks after an hour', () => {
     const rows = buildThread(
       [
         msg(1, 'ai', '2026-10-09T20:00:00Z'),

@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { PhotoMode } from '../../shared/types';
 
-export interface NovaReply {
+export interface PersonaReply {
   messages: string[];
   heartLatest: boolean;
   /** A camera-roll reference such as "p12". */
@@ -11,17 +11,17 @@ export interface NovaReply {
 export interface ReplyRequest {
   system: string;
   messages: Anthropic.MessageParam[];
-  /** References Nova may send this turn. */
+  /** References Alisa may send this turn. */
   photoRefs: string[];
 }
 
 export interface Responder {
-  reply(req: ReplyRequest): Promise<NovaReply>;
-  /** One line describing a photo, used to catalogue Nova's camera roll. */
+  reply(req: ReplyRequest): Promise<PersonaReply>;
+  /** One line describing a photo, used to catalogue Alisa's camera roll. */
   describe(data: Uint8Array, mime: string): Promise<string>;
 }
 
-/** The shape Nova answers in. Key order is fixed so the request prefix stays cacheable. */
+/** The shape Alisa answers in. Key order is fixed so the request prefix stays cacheable. */
 export function replySchema(photoRefs: string[]) {
   return {
     type: 'object',
@@ -42,7 +42,7 @@ export function replySchema(photoRefs: string[]) {
 
 export class AiUnavailableError extends Error {}
 
-export function parseReply(raw: string, photoRefs: string[]): NovaReply {
+export function parseReply(raw: string, photoRefs: string[]): PersonaReply {
   const data = JSON.parse(raw) as Record<string, unknown>;
   const messages = Array.isArray(data.messages)
     ? data.messages
@@ -76,19 +76,19 @@ export class ClaudeResponder implements Responder {
       return await this.client.messages.create({ model: this.model, ...params });
     } catch (err) {
       if (err instanceof Anthropic.AuthenticationError) {
-        throw new AiUnavailableError('Nova isn’t connected: the server’s ANTHROPIC_API_KEY was rejected.');
+        throw new AiUnavailableError('Alisa isn’t connected: the server’s ANTHROPIC_API_KEY was rejected.');
       }
       if (err instanceof Anthropic.RateLimitError || err instanceof Anthropic.InternalServerError) {
-        throw new AiUnavailableError('Nova is busy right now. Try again in a moment.');
+        throw new AiUnavailableError('Alisa is busy right now. Try again in a moment.');
       }
       if (err instanceof Anthropic.APIConnectionError) {
-        throw new AiUnavailableError('Nova couldn’t be reached. Check the server’s connection.');
+        throw new AiUnavailableError('Alisa couldn’t be reached. Check the server’s connection.');
       }
       throw err;
     }
   }
 
-  async reply({ system, messages, photoRefs }: ReplyRequest): Promise<NovaReply> {
+  async reply({ system, messages, photoRefs }: ReplyRequest): Promise<PersonaReply> {
     const response = await this.call({
       max_tokens: 4000,
       output_config: { effort: 'low', format: { type: 'json_schema', schema: replySchema(photoRefs) } },
@@ -101,7 +101,7 @@ export class ClaudeResponder implements Responder {
     }
     const reply = parseReply(textOf(response.content), photoRefs);
     if (reply.messages.length === 0 && !reply.photo) {
-      throw new AiUnavailableError('Nova’s reply came back empty. Try again.');
+      throw new AiUnavailableError('Alisa’s reply came back empty. Try again.');
     }
     return reply;
   }
@@ -143,7 +143,7 @@ export class ClaudeResponder implements Responder {
 export class FakeResponder implements Responder {
   calls: ReplyRequest[] = [];
 
-  async reply(req: ReplyRequest): Promise<NovaReply> {
+  async reply(req: ReplyRequest): Promise<PersonaReply> {
     this.calls.push(req);
     const last = req.messages[req.messages.length - 1];
     const blocks = typeof last.content === 'string' ? [{ type: 'text' as const, text: last.content }] : last.content;

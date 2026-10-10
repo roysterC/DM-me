@@ -2,7 +2,7 @@
 
 export type Sender = 'user' | 'ai';
 export type PhotoMode = 'keep' | 'once' | 'replay';
-/** How Nova sends a camera-roll photo: her choice each time, or always one way. */
+/** How Alisa sends a camera-roll photo: her choice each time, or always one way. */
 export type SendMode = 'auto' | PhotoMode;
 export type StoryBg = 'violet' | 'sunset' | 'ocean' | 'forest';
 
@@ -72,7 +72,7 @@ export interface AdminStoryDTO extends StoryDTO {
   views: number;
 }
 
-/** A photo in Nova's camera roll: she picks from these when she sends a photo. */
+/** A photo in Alisa's camera roll: she picks from these when she sends a photo. */
 export interface LibraryPhotoDTO {
   id: number;
   url: string;

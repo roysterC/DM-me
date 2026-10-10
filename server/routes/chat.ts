@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { ChatDTO, OpenPhotoDTO, PhotoMode } from '../../shared/types';
-import { NOVA } from '../ai/nova';
+import { PERSONA } from '../ai/persona';
 import { AiUnavailableError } from '../ai/responder';
 import type { Deps } from '../app';
 import { conversationFor, getMessage, listMessages, maxViews, ownedUploads, toMessageDTO } from '../chat';
@@ -24,7 +24,7 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
     const stories = activeStoryMap(db);
     const rows = listMessages(db, conversationId);
     return {
-      persona: NOVA,
+      persona: PERSONA,
       messages: await Promise.all(rows.map((r) => toMessageDTO(r, stories, media))),
       aiConnected,
     };
@@ -78,17 +78,17 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
     const timeZone = typeof body.timeZone === 'string' && body.timeZone.length < 64 ? body.timeZone : 'UTC';
     const conversationId = conversationFor(db, visitor.id);
     if (!aiConnected) {
-      return c.json({ error: 'Nova isn’t connected yet. Set ANTHROPIC_API_KEY on the server.' }, 503);
+      return c.json({ error: 'Alisa isn’t connected yet. Set ANTHROPIC_API_KEY on the server.' }, 503);
     }
     if (!repliesPerVisitor.take(`v${visitor.id}`) || !repliesPerIp.take(clientIp(c))) {
-      return c.json({ error: 'Slow down a little, Nova is catching up.' }, 429);
+      return c.json({ error: 'Slow down a little, Alisa is catching up.' }, 429);
     }
     const day = nowIso().slice(0, 10);
     const used = db.prepare('SELECT count FROM reply_counts WHERE visitor_id = ? AND day = ?').get(visitor.id, day) as
       | { count: number }
       | undefined;
     if ((used?.count ?? 0) >= config.dailyReplyLimit) {
-      return c.json({ error: 'Nova’s done chatting for today. Come back tomorrow.' }, 429);
+      return c.json({ error: 'Alisa’s done chatting for today. Come back tomorrow.' }, 429);
     }
     try {
       const replied = await replies.replyTo(conversationId, timeZone);
@@ -100,8 +100,8 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
       }
     } catch (err) {
       if (err instanceof AiUnavailableError) return c.json({ error: err.message }, 503);
-      console.error('Nova reply failed', err);
-      return c.json({ error: 'Nova couldn’t reply. Try again.' }, 502);
+      console.error('Alisa reply failed', err);
+      return c.json({ error: 'Alisa couldn’t reply. Try again.' }, 502);
     }
     return c.json(await chatState(conversationId));
   });
@@ -115,7 +115,7 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
     return c.json({ message: await messageDTO(getMessage(db, conversationId, row.id)!) });
   });
 
-  // Opening a view-once or replay photo Nova sent. Each open uses up one view.
+  // Opening a view-once or replay photo Alisa sent. Each open uses up one view.
   app.post('/messages/:id/open', async (c) => {
     const conversationId = conversationFor(db, c.get('visitor').id);
     const row = getMessage(db, conversationId, Number(c.req.param('id')));

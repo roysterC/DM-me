@@ -11,7 +11,7 @@
   --danger: #c4001d;
   --ring-seen: #c7c7c7;
   --sent: linear-gradient(180deg, #8a3ae8 0%, #5b4cf0 45%, #2f6bef 100%);
-  --nova: linear-gradient(135deg, #8a3ae8, #2f6bef);
+  --persona: linear-gradient(135deg, #8a3ae8, #2f6bef);
   --ring: linear-gradient(45deg, #feda75, #fa7e1e 30%, #d62976 60%, #962fbf 85%, #4f5bd5);
   --spent-line: #c7c7c7;
   color-scheme: light;
@@ -206,7 +206,7 @@ a {
   border-color: var(--bg);
   font-weight: 600;
   color: #ffffff;
-  background: var(--nova);
+  background: var(--persona);
 }
 .avatar-active {
   position: absolute;
@@ -421,7 +421,7 @@ a {
 }
 .eph-icon-live {
   color: #ffffff;
-  background: var(--nova);
+  background: var(--persona);
 }
 .eph-text {
   display: flex;

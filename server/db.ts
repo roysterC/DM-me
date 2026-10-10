@@ -132,6 +132,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE library_photos ADD COLUMN send_mode TEXT NOT NULL DEFAULT 'auto'
     CHECK (send_mode IN ('auto', 'keep', 'once', 'replay'));
   `,
+  // Chats no longer open with a greeting from the persona (then called Nova): remove it from existing ones.
+  `
+  DELETE FROM messages
+  WHERE sender = 'ai' AND text = 'Hey, I’m Nova. Text me anything: plans, ideas, a rant. I’ll write back.';
+  `,
 ];
 
 export function openDb(dataDir: string): DB {

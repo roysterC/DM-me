@@ -88,7 +88,7 @@ fi
 [[ $DOMAIN =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] ||
   die "DOMAIN in $ENV_FILE must be a name like dm-me-203-0-113-10.nip.io or chat.example.com (no https://, slashes, spaces or port)."
 [[ -n $(env_get SECRET) ]] || die "SECRET is empty in $ENV_FILE. Delete the file and run setup again to regenerate it."
-[[ -n $(env_get ANTHROPIC_API_KEY) ]] || warn "ANTHROPIC_API_KEY is empty: the site works but Nova won't reply."
+[[ -n $(env_get ANTHROPIC_API_KEY) ]] || warn "ANTHROPIC_API_KEY is empty: the site works but Alisa won't reply."
 [[ -n $(env_get ADMIN_PASSWORD) ]] || warn "ADMIN_PASSWORD is empty: the /admin page will be off."
 BACKUPS=no
 if [[ -n $(env_get S3_BUCKET) ]]; then

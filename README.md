@@ -1,18 +1,18 @@
 # DM-me
 
-Instagram-style direct messages with **Nova**, an AI that texts back. It's a web app: one small Node server with a React front end. There are no accounts: each browser gets its own chat, remembered by a cookie.
+Instagram-style direct messages with **Alisa**, an AI that texts back. It's a web app: one small Node server with a React front end. There are no accounts: each browser gets its own chat, remembered by a cookie.
 
 What visitors can do:
 
-- **Chat.** Send a few messages in a row and Nova answers them together, in short bubbles with a typing indicator, then shows "Seen". Double-tap one of Nova's messages to heart it; Nova sometimes hearts yours.
-- **Send photos.** Take one with the camera or pick one from the library, then choose **View once**, **Allow replay** or **Keep in chat**. Nova looks at the photo and responds to what's in it. A view-once photo is shown to Nova once and then deleted.
-- **Get photos from Nova.** Nova can send photos from her camera roll as view-once, replay or kept photos. She picks the mode herself (a quick pic or selfie tends to disappear, a recipe stays), unless you've set the photo to always go out one way on the admin page. Tap to view: the photo opens full screen for 5 seconds, then the bubble changes to "Tap to replay" or "Opened". The server enforces the limit.
-- **Watch stories.** Nova's avatar gets the story ring when there's something new. Tap left or right to move, hold to pause, heart a story, or reply (the reply lands in the chat as "You replied to their story"). Stories expire after 24 hours.
-- **Delete the chat** from Nova's profile sheet, which also deletes the photos they sent.
+- **Chat.** Send a few messages in a row and Alisa answers them together, in short bubbles with a typing indicator, then shows "Seen". Double-tap one of Alisa's messages to heart it; Alisa sometimes hearts yours.
+- **Send photos.** Take one with the camera or pick one from the library, then choose **View once**, **Allow replay** or **Keep in chat**. Alisa looks at the photo and responds to what's in it. A view-once photo is shown to Alisa once and then deleted.
+- **Get photos from Alisa.** Alisa can send photos from her camera roll as view-once, replay or kept photos. She picks the mode herself (a quick pic or selfie tends to disappear, a recipe stays), unless you've set the photo to always go out one way on the admin page. Tap to view: the photo opens full screen for 5 seconds, then the bubble changes to "Tap to replay" or "Opened". The server enforces the limit.
+- **Watch stories.** Alisa's avatar gets the story ring when there's something new. Tap left or right to move, hold to pause, heart a story, or reply (the reply lands in the chat as "You replied to their story"). Stories expire after 24 hours.
+- **Delete the chat** from Alisa's profile sheet, which also deletes the photos they sent.
 
 What you (the owner) can do at **`/admin`**, unlocked with `ADMIN_PASSWORD`:
 
-- **Camera roll:** add the photos Nova can send. Each photo needs a description, because that's how Nova picks one; leave it empty and Nova writes it. **Sends as** sets how each photo arrives: **Nova decides** (the default), or always **View once**, **Allow replay** or **Keep in chat**. You can also upload straight into the bucket's `library/` folder and press **Sync from bucket**.
+- **Camera roll:** add the photos Alisa can send. Each photo needs a description, because that's how Alisa picks one; leave it empty and Alisa writes it. **Sends as** sets how each photo arrives: **Alisa decides** (the default), or always **View once**, **Allow replay** or **Keep in chat**. You can also upload straight into the bucket's `library/` folder and press **Sync from bucket**.
 - **Stories:** post photo or text stories and delete them.
 
 ## Run it locally
@@ -25,7 +25,7 @@ cp .env.example .env        # put your key in ANTHROPIC_API_KEY and pick an ADMI
 npm run dev                 # web app on http://localhost:5173, API on :3001
 ```
 
-Without a bucket configured, photos are kept in `data/media` on disk, which is fine for local use. Without an API key the app still runs, but Nova shows as offline. `DM_ME_FAKE_AI=1` gives canned test replies without calling Claude.
+Without a bucket configured, photos are kept in `data/media` on disk, which is fine for local use. Without an API key the app still runs, but Alisa shows as offline. `DM_ME_FAKE_AI=1` gives canned test replies without calling Claude.
 
 ## Photo storage on a small VPS
 
@@ -49,24 +49,24 @@ Backblaze B2, AWS S3, Supabase Storage (its S3 endpoint) and MinIO work the same
 
 | Folder | What's in it |
 |---|---|
-| `library/` | Nova's camera roll. Files you add here directly appear after **Sync from bucket**. |
-| `uploads/` | Photos visitors send. Deleted after Nova views a view-once photo, or when the chat is deleted. |
+| `library/` | Alisa's camera roll. Files you add here directly appear after **Sync from bucket**. |
+| `uploads/` | Photos visitors send. Deleted after Alisa views a view-once photo, or when the chat is deleted. |
 | `stories/` | Photos for stories posted from `/admin`. |
 
 ## Configuration
 
 | Variable | Default | What it does |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | none | Required for Nova to reply. |
-| `ANTHROPIC_MODEL` | `claude-haiku-5-5` | The Claude model Nova uses. |
+| `ANTHROPIC_API_KEY` | none | Required for Alisa to reply. |
+| `ANTHROPIC_MODEL` | `claude-haiku-5-5` | The Claude model Alisa uses. |
 | `ADMIN_PASSWORD` | none | Unlocks `/admin`. Without it the admin page is off. |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | none | Photo storage bucket (above). `S3_PATH_STYLE=false` for providers that need `bucket.endpoint` URLs. |
 | `PORT` | `3000` | Port for `npm start`. |
 | `HOST` | `0.0.0.0` | Interface to listen on. `127.0.0.1` behind a reverse proxy. |
 | `DATA_DIR` | `./data` | SQLite database, and photos when no bucket is set. |
-| `DAILY_REPLY_LIMIT` | `200` | Nova replies per visitor per day, to cap API spend on a public site. |
+| `DAILY_REPLY_LIMIT` | `200` | Alisa replies per visitor per day, to cap API spend on a public site. |
 | `AUTO_STORIES` | on | Re-post four sample stories whenever none are live. `off` to disable. |
-| `SAMPLE_PHOTOS` | on | Start Nova's camera roll with four sample photos. `off` to start empty. |
+| `SAMPLE_PHOTOS` | on | Start Alisa's camera roll with four sample photos. `off` to start empty. |
 | `PHOTO_SECONDS` | `5` | How long a view-once or replay photo stays on screen. |
 | `SECRET` | generated | Signs cookies and photo links. Generated into `DATA_DIR/secret.key` if unset. |
 | `DM_ME_FAKE_AI` | off | `1` replaces Claude with canned replies, for tests and demos. |
@@ -110,11 +110,11 @@ node scripts/e2e.mjs http://localhost:3456 test-results/screens
 
 ```
 server/            Hono API on Node, SQLite via better-sqlite3
-  ai/nova.ts       Nova's persona, system prompt, sample photos and stories
-  ai/context.ts    turns chat history into a Claude conversation (text, images, Nova's past replies)
+  ai/persona.ts    Alisa's persona, system prompt, sample photos and stories
+  ai/context.ts    turns chat history into a Claude conversation (text, images, Alisa's past replies)
   ai/responder.ts  the Claude calls (replies and photo descriptions), plus the fake used in tests
   chat.ts          reply flow: one reply per conversation at a time, view-once bookkeeping
-  library.ts       Nova's camera roll: uploads, descriptions, bucket sync
+  library.ts       Alisa's camera roll: uploads, descriptions, bucket sync
   storage.ts       S3-compatible bucket client (signed requests and links) and local-disk storage
   media.ts         photo validation, signed links, small in-memory cache
   identity.ts      visitor cookie, admin password, rate limits
@@ -127,13 +127,13 @@ src/               React web app (Vite)
 shared/types.ts    API shapes used by both sides
 ```
 
-How Nova replies:
+How Alisa replies:
 
 - Each reply is one call to **Claude Haiku 5.5** at `low` effort, which is fast and cheap for chat: $0.10 per million input tokens and $0.50 per million output, so a typical reply costs a small fraction of a cent. The answer comes back as structured JSON: the bubbles to send, whether to heart the visitor's last message, and optionally a camera-roll photo and how to send it.
-- The conversation is sent each time, with each visitor message stamped in their time zone so Nova knows when "tonight" is. The persona prompt and earlier messages are prompt-cached.
-- Kept photos are re-sent as images (up to the 12 most recent). A view-once photo is included only in the turn Nova first sees it; after that she gets a note saying she already viewed it.
-- Nova is told about the newest 150 photos in her camera roll.
-- If Claude declines a message for safety reasons, Nova answers "I can't help with that one." (Haiku has no automatic retry on another model.)
+- The conversation is sent each time, with each visitor message stamped in their time zone so Alisa knows when "tonight" is. The persona prompt and earlier messages are prompt-cached.
+- Kept photos are re-sent as images (up to the 12 most recent). A view-once photo is included only in the turn Alisa first sees it; after that she gets a note saying she already viewed it.
+- Alisa is told about the newest 150 photos in her camera roll.
+- If Claude declines a message for safety reasons, Alisa answers "I can't help with that one." (Haiku has no automatic retry on another model.)
 
 Privacy and safety:
 

@@ -14,7 +14,7 @@ export interface Config {
   clientDir: string;
   anthropicModel: string;
   fakeAi: boolean;
-  /** Unlocks /admin (stories and Nova's camera roll). Empty disables the admin page. */
+  /** Unlocks /admin (stories and Alisa's camera roll). Empty disables the admin page. */
   adminPassword: string;
   /** Signs cookies and media links. Generated into the data directory when not set. */
   secret: string;
@@ -23,7 +23,7 @@ export interface Config {
   seedSamplePhotos: boolean;
   /** Seconds a view-once or replay photo stays on screen. */
   photoSeconds: number;
-  /** Nova replies per visitor per day. */
+  /** Alisa replies per visitor per day. */
   dailyReplyLimit: number;
 }
 

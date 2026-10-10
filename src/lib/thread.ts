@@ -13,7 +13,7 @@ export type ThreadRow =
       /** Same sender directly above / below, so the touching corners tighten. */
       joinPrev: boolean;
       joinNext: boolean;
-      /** Nova's avatar sits beside the last bubble of each of her runs. */
+      /** Alisa's avatar sits beside the last bubble of each of her runs. */
       showAvatar: boolean;
     };
 
