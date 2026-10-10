@@ -217,6 +217,10 @@ LITESTREAM_BIN=$(command -v litestream || true)
 
 id "$APP_USER" >/dev/null 2>&1 || useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin "$APP_USER"
 install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$DATA_DIR"
+# The services run as $APP_USER and must be able to enter the settings folder to read
+# litestream.yml. dm-me.env itself stays readable by root only: systemd reads it for them.
+chown root:"$APP_USER" "$ENV_DIR"
+chmod 750 "$ENV_DIR"
 
 # ---- Build ---------------------------------------------------------------------------
 
