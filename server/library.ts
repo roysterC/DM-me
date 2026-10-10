@@ -36,7 +36,12 @@ export function cameraRoll(db: DB): { roll: RollEntry[]; byRef: Map<string, Libr
   const rows = listLibrary(db, ROLL_LIMIT).reverse();
   const byRef = new Map(rows.map((r) => [photoRef(r.id), r]));
   const refByKey = new Map(rows.map((r) => [r.media_key, photoRef(r.id)]));
-  return { roll: rows.map((r) => ({ ref: photoRef(r.id), description: r.description })), byRef, refByKey };
+  const roll = rows.map((r) => ({
+    ref: photoRef(r.id),
+    description: r.description,
+    mode: r.send_mode === 'auto' ? undefined : r.send_mode,
+  }));
+  return { roll, byRef, refByKey };
 }
 
 export async function toLibraryDTO(r: LibraryPhotoRow, media: MediaStore): Promise<LibraryPhotoDTO> {
@@ -47,6 +52,7 @@ export async function toLibraryDTO(r: LibraryPhotoRow, media: MediaStore): Promi
     height: r.height,
     description: r.description,
     sample: r.media_key.startsWith('asset:'),
+    sendMode: r.send_mode,
     createdAt: r.created_at,
   };
 }

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import type { PhotoMode, Sender, StoryBg } from '../shared/types';
+import type { PhotoMode, SendMode, Sender, StoryBg } from '../shared/types';
 
 export type DB = Database.Database;
 
@@ -52,6 +52,7 @@ export interface LibraryPhotoRow {
   description: string;
   created_at: string;
   hidden: number;
+  send_mode: SendMode;
 }
 
 const MIGRATIONS: string[] = [
@@ -126,6 +127,10 @@ const MIGRATIONS: string[] = [
     count INTEGER NOT NULL,
     PRIMARY KEY (visitor_id, day)
   );
+  `,
+  `
+  ALTER TABLE library_photos ADD COLUMN send_mode TEXT NOT NULL DEFAULT 'auto'
+    CHECK (send_mode IN ('auto', 'keep', 'once', 'replay'));
   `,
 ];
 

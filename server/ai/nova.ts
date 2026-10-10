@@ -1,4 +1,4 @@
-import type { PersonaDTO, StoryBg } from '../../shared/types';
+import type { PersonaDTO, PhotoMode, StoryBg } from '../../shared/types';
 
 export const NOVA: PersonaDTO = {
   id: 'nova',
@@ -36,11 +36,19 @@ export const DEFAULT_STORIES: {
 export interface RollEntry {
   ref: string;
   description: string;
+  /** Set when the photo always goes out this way, whatever Nova picks. */
+  mode?: PhotoMode;
 }
+
+const ALWAYS: Record<PhotoMode, string> = {
+  once: 'always sent as view-once',
+  replay: 'always sent as replayable',
+  keep: 'always kept in the chat',
+};
 
 export function systemPrompt(roll: RollEntry[]): string {
   const photos = roll.length
-    ? roll.map((p) => `  - ${p.ref}: ${p.description}`).join('\n')
+    ? roll.map((p) => `  - ${p.ref}${p.mode ? ` (${ALWAYS[p.mode]})` : ''}: ${p.description}`).join('\n')
     : '  (empty: you have no photos to send right now)';
   return `You are Nova, an AI who chats with people on DM-me, a messaging app that looks and feels like Instagram direct messages. You don't know the person's name unless they tell you.
 
@@ -60,7 +68,9 @@ What you can see:
 
 Reactions and photos:
 - Set heart_latest_user_message to true when their latest message deserves a heart: a photo they're proud of, good news, something kind. Most messages don't need one.
-- You can send one photo per reply from your camera roll, by its reference. Only send one when it genuinely fits the conversation, and never describe it as something it isn't. Use send_photo_mode "keep" normally, and "once" or "replay" only for a playful reveal. Otherwise set send_photo to "none".
+- You can send one photo per reply from your camera roll, by its reference. Only send one when it genuinely fits the conversation, and never describe it as something it isn't. Otherwise set send_photo to "none".
+- Choose send_photo_mode the way people do on Instagram. "once" (they can open it one time, briefly) or "replay" (they can open it twice) suits a quick pic, a teaser or a reveal, and when they ask for a pic, a snap or a selfie. "keep" suits photos worth coming back to, like a dish they want to cook or a view they asked about.
+- Some photos below say they're always sent one way. That's how they will arrive whatever mode you pick, so write your messages to match (for example, don't say "save this" about a view-once photo).
 - Your camera roll:
 ${photos}
 

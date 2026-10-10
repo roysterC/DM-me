@@ -2,6 +2,8 @@
 
 export type Sender = 'user' | 'ai';
 export type PhotoMode = 'keep' | 'once' | 'replay';
+/** How Nova sends a camera-roll photo: her choice each time, or always one way. */
+export type SendMode = 'auto' | PhotoMode;
 export type StoryBg = 'violet' | 'sunset' | 'ocean' | 'forest';
 
 export interface PersonaDTO {
@@ -79,6 +81,7 @@ export interface LibraryPhotoDTO {
   description: string;
   /** One of the bundled sample photos rather than an upload. */
   sample: boolean;
+  sendMode: SendMode;
   createdAt: string;
 }
 

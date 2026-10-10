@@ -161,7 +161,11 @@ export class ReplyService {
       const now = nowIso();
       for (const text of reply.messages) insertText.run(conversationId, text, now);
       const p = reply.photo ? byRef.get(reply.photo.ref) : undefined;
-      if (reply.photo && p) insertPhoto.run(conversationId, p.media_key, p.media_mime, p.width, p.height, reply.photo.mode, now);
+      if (reply.photo && p) {
+        // A photo set to always go out one way on the admin page overrides Nova's choice.
+        const mode = p.send_mode === 'auto' ? reply.photo.mode : p.send_mode;
+        insertPhoto.run(conversationId, p.media_key, p.media_mime, p.width, p.height, mode, now);
+      }
     })();
     await Promise.all(toDelete.map((k) => this.media.remove(k).catch((err) => console.error('Delete failed', k, err))));
     return true;

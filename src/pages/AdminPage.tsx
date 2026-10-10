@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { type AdminStoryDTO, type LibraryPhotoDTO, STORY_BGS, type StoryBg } from '../../shared/types';
+import { type AdminStoryDTO, type LibraryPhotoDTO, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { IconBack } from '../components/Icons';
 import { prepareImage } from '../lib/image';
@@ -166,7 +166,8 @@ function CameraRoll({ storage }: { storage: 'local' | 's3' }) {
     <>
       <p className="admin-help">
         Nova picks from these when she sends a photo, going by each description. Leave the description empty and Nova
-        writes one.
+        writes one. “Sends as” sets whether a photo disappears after viewing: leave it on “Nova decides”, or make it
+        always view once, replayable or kept in the chat.
       </p>
       <form className="admin-form" onSubmit={upload}>
         <label className="field">
@@ -212,9 +213,21 @@ function CameraRoll({ storage }: { storage: 'local' | 's3' }) {
   );
 }
 
+const SEND_MODES: { id: SendMode; label: string }[] = [
+  { id: 'auto', label: 'Nova decides' },
+  { id: 'once', label: 'View once' },
+  { id: 'replay', label: 'Allow replay' },
+  { id: 'keep', label: 'Keep in chat' },
+];
+
 function PhotoRow({ photo, onChanged }: { photo: LibraryPhotoDTO; onChanged: () => void }) {
   const [text, setText] = useState(photo.description);
   const [saving, setSaving] = useState(false);
+  const [sendMode, setSendMode] = useState(photo.sendMode);
+  const changeMode = async (mode: SendMode) => {
+    setSendMode(mode);
+    await api.admin.setSendMode(photo.id, mode).catch(() => setSendMode(photo.sendMode));
+  };
   const dirty = text.trim() !== photo.description;
   const save = async () => {
     setSaving(true);
@@ -235,6 +248,16 @@ function PhotoRow({ photo, onChanged }: { photo: LibraryPhotoDTO; onChanged: () 
           Description
         </label>
         <textarea id={`desc-${photo.id}`} className="admin-desc" rows={2} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} />
+        <label className="admin-send">
+          <span>Sends as</span>
+          <select value={sendMode} onChange={(e) => changeMode(e.target.value as SendMode)}>
+            {SEND_MODES.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <span className="muted small">
           {photo.sample ? 'Sample photo' : `Added ${shortAge(photo.createdAt)} ago`}
           {dirty && (
