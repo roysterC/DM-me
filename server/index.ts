@@ -8,9 +8,9 @@ const db = openDb(config.dataDir);
 const responder = pickResponder(config);
 const { app, deps } = createApp(db, config, responder);
 
-if (!responder) console.warn('ANTHROPIC_API_KEY is not set: the app runs, but Nova will not reply until it is.');
-else if (config.fakeAi) console.warn('DM_ME_FAKE_AI=1: Nova is using canned test replies instead of Claude.');
-else console.log(`Nova replies with ${config.anthropicModel}.`);
+if (!responder) console.warn('ANTHROPIC_API_KEY is not set: the app runs, but Alisa will not reply until it is.');
+else if (config.fakeAi) console.warn('DM_ME_FAKE_AI=1: Alisa is using canned test replies instead of Claude.');
+else console.log(`Alisa replies with ${config.anthropicModel}.`);
 console.log(
   deps.media.storage.kind === 's3'
     ? `Photos are stored in the bucket "${config.s3!.bucket}".`

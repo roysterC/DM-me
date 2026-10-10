@@ -21,7 +21,7 @@ export function MessageItem({ message: m, persona, joinPrev, joinNext, showAvata
   const radius = bubbleRadius(m.sender, joinPrev, joinNext);
   const lastTap = useRef(0);
 
-  // Double-tap (or double-click) one of Nova's messages to heart it, like Instagram.
+  // Double-tap (or double-click) one of Alisa's messages to heart it, like Instagram.
   const tapToHeart = () => {
     if (mine || m.pending) return;
     const now = Date.now();
@@ -89,14 +89,14 @@ function renderContent(m: UiMessage, radius: string, on: Pick<Props, 'onOpenEphe
     const ratio = p.width && p.height ? `${p.width} / ${p.height}` : '4 / 5';
     return (
       <button type="button" className="photo-kept" style={{ ...style, aspectRatio: ratio }} onClick={() => on.onOpenKept(m)} aria-label="Open photo">
-        <img src={p.url!} alt={mine ? 'Photo you sent' : 'Photo from Nova'} loading="lazy" />
+        <img src={p.url!} alt={mine ? 'Photo you sent' : 'Photo from Alisa'} loading="lazy" />
       </button>
     );
   }
 
   const ModeIcon = p.mode === 'once' ? IconOnce : IconReplay;
   if (mine) {
-    // Your own view-once photo: you can't reopen it, you only see whether Nova has.
+    // Your own view-once photo: you can't reopen it, you only see whether Alisa has.
     const opened = p.viewCount > 0;
     const status = m.pending === 'sending' ? 'Sending…' : m.pending === 'failed' ? 'Not sent' : opened ? 'Opened' : 'Delivered';
     return (
@@ -128,7 +128,7 @@ function renderContent(m: UiMessage, radius: string, on: Pick<Props, 'onOpenEphe
   }
   const sub = p.viewCount === 0 ? 'Tap to view' : 'Tap to replay';
   return (
-    <button type="button" className="eph eph-recv" style={style} onClick={() => on.onOpenEphemeral(m)} aria-label={`Photo from Nova. ${sub}`}>
+    <button type="button" className="eph eph-recv" style={style} onClick={() => on.onOpenEphemeral(m)} aria-label={`Photo from Alisa. ${sub}`}>
       <span className="eph-icon eph-icon-live">
         <ModeIcon size={18} />
       </span>
@@ -147,7 +147,7 @@ function StoryQuote({ story }: { story: NonNullable<UiMessage['story']> }) {
       {!story.available ? (
         <div className="story-quote-gone">Story unavailable</div>
       ) : story.kind === 'photo' && story.thumbUrl ? (
-        <img className="story-quote-thumb" src={story.thumbUrl} alt={story.caption ?? 'Nova’s story'} />
+        <img className="story-quote-thumb" src={story.thumbUrl} alt={story.caption ?? 'Alisa’s story'} />
       ) : (
         <div className={`story-quote-thumb story-quote-text bg-${story.bg ?? 'violet'}`}>{story.caption}</div>
       )}

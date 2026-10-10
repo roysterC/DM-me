@@ -27,7 +27,7 @@ export function clientIp(c: Context): string {
 
 /**
  * There are no accounts: each browser gets a random visitor cookie, and its
- * chat with Nova belongs to that cookie. Clearing cookies starts a new chat.
+ * chat with Alisa belongs to that cookie. Clearing cookies starts a new chat.
  */
 export function visitor(db: DB): MiddlewareHandler<AppEnv> {
   return async (c, next) => {

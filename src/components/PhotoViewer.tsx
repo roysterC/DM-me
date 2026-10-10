@@ -15,7 +15,7 @@ interface Props {
   onToggleHeart: () => void;
 }
 
-/** Full-screen view of a view-once or replay photo Nova sent, with its countdown. */
+/** Full-screen view of a view-once or replay photo Alisa sent, with its countdown. */
 export function PhotoViewer({ message, opened, persona, onClose, onReply, onToggleHeart }: Props) {
   const [held, setHeld] = useState(false);
   const [typing, setTyping] = useState(false);

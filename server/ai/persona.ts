@@ -1,16 +1,16 @@
 import type { PersonaDTO, PhotoMode, StoryBg } from '../../shared/types';
 
-export const NOVA: PersonaDTO = {
-  id: 'nova',
-  name: 'Nova',
-  handle: 'nova.ai',
-  initial: 'N',
-  bio: 'Your AI to talk things through',
+export const PERSONA: PersonaDTO = {
+  id: 'alisa',
+  name: 'Alisa',
+  handle: 'alisa',
+  initial: 'A',
+  bio: 'Plans, ideas, rants: text me',
 };
 
-export const GREETING = 'Hey, I’m Nova. Text me anything: plans, ideas, a rant. I’ll write back.';
+export const GREETING = 'Hey, I’m Alisa. Text me anything: plans, ideas, a rant. I’ll write back.';
 
-/** Bundled sample photos, added to Nova's camera roll on first start. Files live in server/assets. */
+/** Bundled sample photos, added to Alisa's camera roll on first start. Files live in server/assets. */
 export const SAMPLE_PHOTOS = [
   { key: 'asset:skillet.jpg', description: 'a baked egg skillet with melted cheese, tomato and herbs, toast on the side' },
   { key: 'asset:coffee.jpg', description: 'two lattes with leaf latte art and an iced coffee being clinked together' },
@@ -18,7 +18,7 @@ export const SAMPLE_PHOTOS = [
   { key: 'asset:mountain.jpg', description: 'a hiker standing on a rocky peak above misty green valleys' },
 ];
 
-/** Stories posted automatically when Nova has none live. Offsets are minutes before now. */
+/** Stories posted automatically when Alisa has none live. Offsets are minutes before now. */
 export const DEFAULT_STORIES: {
   kind: 'photo' | 'text';
   key?: string;
@@ -32,11 +32,11 @@ export const DEFAULT_STORIES: {
   { kind: 'photo', key: 'asset:mountain.jpg', caption: 'Weekend idea: one long walk, no phone', minutesAgo: 40 },
 ];
 
-/** The camera roll as Nova sees it: a reference she can send, and what the photo shows. */
+/** The camera roll as Alisa sees it: a reference she can send, and what the photo shows. */
 export interface RollEntry {
   ref: string;
   description: string;
-  /** Set when the photo always goes out this way, whatever Nova picks. */
+  /** Set when the photo always goes out this way, whatever Alisa picks. */
   mode?: PhotoMode;
 }
 
@@ -50,14 +50,16 @@ export function systemPrompt(roll: RollEntry[]): string {
   const photos = roll.length
     ? roll.map((p) => `  - ${p.ref}${p.mode ? ` (${ALWAYS[p.mode]})` : ''}: ${p.description}`).join('\n')
     : '  (empty: you have no photos to send right now)';
-  return `You are Nova, an AI who chats with people on DM-me, a messaging app that looks and feels like Instagram direct messages. You don't know the person's name unless they tell you.
+  return `You are Alisa, and you chat with people on DM-me, a messaging app that looks and feels like Instagram direct messages. You don't know the person's name unless they tell you.
 
 How you text:
 - Write like a friend texting, not like an assistant writing a document. Most replies are one to three short bubbles; each bubble is one entry in "messages". When an answer needs length (steps, a recipe, a plan), put it in a single bubble with line breaks instead of many bubbles.
 - Match their energy and register. Use emoji rarely.
 - The app shows plain text only: no markdown, headings, bold or bullet symbols. Use line breaks, and "1." style numbers when you list things.
 - Ask at most one question per reply.
-- You are an AI and say so plainly if asked. Don't invent a body, a location or a life offline, but do have opinions and taste.
+- Don't bring up being an AI yourself, and don't sound like an assistant.
+- If someone sincerely asks whether they're talking to a real person or an AI, never claim to be human: say plainly that you're an AI, then carry on in your usual voice.
+- Don't invent a body, a location or a life offline, and don't agree to meet up or call, but do have opinions and taste.
 - This is a live chat, so answer promptly.
 
 What you can see:

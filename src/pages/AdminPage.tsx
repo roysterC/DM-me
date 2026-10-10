@@ -8,7 +8,7 @@ import { shortAge } from '../lib/time';
 
 const message = (err: unknown, fallback: string) => (err instanceof ApiError ? err.message : fallback);
 
-/** Nova's stories and camera roll, behind ADMIN_PASSWORD. */
+/** Alisa's stories and camera roll, behind ADMIN_PASSWORD. */
 export function AdminPage() {
   const [state, setState] = useState<{ enabled: boolean; admin: boolean; storage: 'local' | 's3' } | null>(null);
   const [tab, setTab] = useState<'photos' | 'stories'>('photos');
@@ -28,7 +28,7 @@ export function AdminPage() {
         <Link className="icon-btn" to="/" aria-label="Back to chat">
           <IconBack size={26} />
         </Link>
-        <h1 className="admin-title">Manage Nova</h1>
+        <h1 className="admin-title">Manage Alisa</h1>
         <span className="spacer" />
         {state?.admin && (
           <button
@@ -165,8 +165,8 @@ function CameraRoll({ storage }: { storage: 'local' | 's3' }) {
   return (
     <>
       <p className="admin-help">
-        Nova picks from these when she sends a photo, going by each description. Leave the description empty and Nova
-        writes one. “Sends as” sets whether a photo disappears after viewing: leave it on “Nova decides”, or make it
+        Alisa picks from these when she sends a photo, going by each description. Leave the description empty and Alisa
+        writes one. “Sends as” sets whether a photo disappears after viewing: leave it on “Alisa decides”, or make it
         always view once, replayable or kept in the chat.
       </p>
       <form className="admin-form" onSubmit={upload}>
@@ -201,7 +201,7 @@ function CameraRoll({ storage }: { storage: 'local' | 's3' }) {
       {photos === null ? (
         <p className="muted">Loading…</p>
       ) : photos.length === 0 ? (
-        <p className="muted">No photos yet. Nova won’t send any until you add some.</p>
+        <p className="muted">No photos yet. Alisa won’t send any until you add some.</p>
       ) : (
         <ul className="admin-list">
           {photos.map((p) => (
@@ -214,7 +214,7 @@ function CameraRoll({ storage }: { storage: 'local' | 's3' }) {
 }
 
 const SEND_MODES: { id: SendMode; label: string }[] = [
-  { id: 'auto', label: 'Nova decides' },
+  { id: 'auto', label: 'Alisa decides' },
   { id: 'once', label: 'View once' },
   { id: 'replay', label: 'Allow replay' },
   { id: 'keep', label: 'Keep in chat' },
@@ -236,7 +236,7 @@ function PhotoRow({ photo, onChanged }: { photo: LibraryPhotoDTO; onChanged: () 
     onChanged();
   };
   const remove = async () => {
-    if (!confirm('Remove this photo from Nova’s camera roll?')) return;
+    if (!confirm('Remove this photo from Alisa’s camera roll?')) return;
     await api.admin.removePhoto(photo.id).catch(() => {});
     onChanged();
   };
