@@ -6,7 +6,7 @@
 - **Caddy** serves it over HTTPS and renews the certificate automatically.
 - **Litestream** copies every change to the database into your bucket within about a second, so a dead server loses almost nothing.
 
-The app itself only listens on `127.0.0.1:3000`; the outside world reaches it through Caddy.
+The app itself only listens on `127.0.0.1:3000` (or the next free port if another program already uses 3000); the outside world reaches it through Caddy.
 
 ## What you need
 
@@ -125,6 +125,8 @@ Litestream keeps short-term history and compacts it over time, so recent points 
   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
   ```
 
+- **"Failed to query local AF_VSOCK CID".** A harmless warning systemd prints on many virtual servers. Ignore it.
+- **Port 3000 is already in use** (another site's app, say). Setup detects this, uses the next free port and saves it as `PORT` in `/etc/dm-me/dm-me.env`. If you set `PORT` yourself, it must be free.
 - **Nova doesn't reply.** Check `ANTHROPIC_API_KEY` in `/etc/dm-me/dm-me.env`, restart, and look at `journalctl -u dm-me -n 50`.
 - **Backups aren't appearing in the bucket.** Look at `journalctl -u dm-me-backup -n 50`. The R2 token needs **Object Read & Write** on the bucket.
 
