@@ -63,7 +63,14 @@ if [[ ! -f $ENV_FILE ]]; then
 fi
 
 DOMAIN=$(env_get DOMAIN)
-[[ -n $DOMAIN && $DOMAIN != chat.example.com ]] || die "Set DOMAIN in $ENV_FILE."
+if [[ -z $DOMAIN || $DOMAIN == chat.example.com ]]; then
+  ip=$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)
+  if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    die "Set DOMAIN in $ENV_FILE. No domain? Use this server's free nip.io address:
+  DOMAIN=${ip//./-}.nip.io"
+  fi
+  die "Set DOMAIN in $ENV_FILE. No domain? Use <your server's IP with dashes>.nip.io, e.g. 203-0-113-10.nip.io"
+fi
 [[ -n $(env_get SECRET) ]] || die "SECRET is empty in $ENV_FILE. Delete the file and run setup again to regenerate it."
 [[ -n $(env_get ANTHROPIC_API_KEY) ]] || warn "ANTHROPIC_API_KEY is empty: the site works but Nova won't reply."
 [[ -n $(env_get ADMIN_PASSWORD) ]] || warn "ADMIN_PASSWORD is empty: the /admin page will be off."
