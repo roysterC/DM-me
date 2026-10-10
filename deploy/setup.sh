@@ -90,13 +90,72 @@ else
   warn "No bucket configured: photos stay on this server's disk and the database is NOT backed up."
 fi
 
-# ---- Ports 80 and 443 must be free for Caddy ---------------------------------------
+# ---- Who serves ports 80 and 443? ---------------------------------------------------
+# Reuse a Caddy that's already running here (for another site, say) instead of installing
+# a second one. Set CADDY=off in the env file to manage the web server yourself.
 
-if command -v ss >/dev/null; then
-  others=$(ss -Hltnp '( sport = :80 or sport = :443 )' 2>/dev/null | grep -v '"caddy"' || true)
-  [[ -z $others ]] || die "Something other than Caddy is using port 80 or 443 (nginx or Apache?):
-$others
-Stop it, or put DM-me behind it yourself (proxy to 127.0.0.1:$PORT) and skip Caddy."
+MANAGE_CADDY=yes
+[[ $(env_get CADDY) == off ]] && MANAGE_CADDY=no
+CADDY_BIN='' CADDY_CONFIG='' CADDY_UNIT='' CADDY_EXISTING=no
+
+manual_proxy_help() {
+  cat <<HELP
+Add this site to your web server, pointing at the app on this machine:
+
+  $DOMAIN {
+      reverse_proxy 127.0.0.1:$PORT
+  }
+
+(That's Caddy syntax. For nginx, proxy_pass to http://127.0.0.1:$PORT and pass the Host and
+X-Forwarded-Proto headers through.) Then set CADDY=off in $ENV_FILE and run setup again.
+HELP
+}
+
+if [[ $MANAGE_CADDY == yes ]]; then
+  if command -v ss >/dev/null; then
+    others=$(ss -Hltnp '( sport = :80 or sport = :443 )' 2>/dev/null | grep -v '"caddy"' || true)
+    if [[ -n $others ]]; then
+      printf '\nSomething other than Caddy running directly on this server holds port 80 or 443\n(nginx, Apache, or a web server in Docker?):\n%s\n\n' "$others" >&2
+      manual_proxy_help >&2
+      exit 1
+    fi
+  fi
+  # Found by process name, so it works wherever Caddy was installed.
+  caddy_pid=$(pgrep -xo caddy || true)
+  # A container has its own root filesystem; systemd's sandboxing (PrivateTmp, ProtectSystem)
+  # gives Caddy its own mount namespace but the same root, so compare roots, not namespaces.
+  if [[ -n $caddy_pid && $(stat -Lc %d:%i "/proc/$caddy_pid/root") != $(stat -Lc %d:%i /) ]]; then
+    # Caddy inside a container: its files aren't this server's files, so don't touch them.
+    printf '\nCaddy is running inside a container (Docker?), so setup will not change it.\n' >&2
+    printf 'Unless the container uses host networking, it reaches the app at the host address\n(e.g. host.docker.internal:%s, with HOST=0.0.0.0 added to %s) rather than 127.0.0.1.\n\n' "$PORT" "$ENV_FILE" >&2
+    manual_proxy_help >&2
+    exit 1
+  fi
+  if [[ -n $caddy_pid ]]; then
+    CADDY_EXISTING=yes
+    CADDY_BIN=$(readlink -f "/proc/$caddy_pid/exe")
+    CADDY_UNIT=$(ps -o unit= -p "$caddy_pid" | tr -d ' ')
+    [[ $CADDY_UNIT == *.service ]] || CADDY_UNIT=''
+    mapfile -d '' -t caddy_args <"/proc/$caddy_pid/cmdline"
+    caddy_cwd=$(readlink -f "/proc/$caddy_pid/cwd")
+    adapter=''
+    for ((i = 0; i < ${#caddy_args[@]}; i++)); do
+      case "${caddy_args[i]}" in
+        --config | -config) CADDY_CONFIG=${caddy_args[i + 1]:-} ;;
+        --config=* | -config=*) CADDY_CONFIG=${caddy_args[i]#*=} ;;
+        --adapter | -adapter) adapter=${caddy_args[i + 1]:-} ;;
+        --adapter=* | -adapter=*) adapter=${caddy_args[i]#*=} ;;
+      esac
+    done
+    # Without --config, Caddy reads ./Caddyfile from its working directory if there is one.
+    [[ -z $CADDY_CONFIG && -f $caddy_cwd/Caddyfile ]] && CADDY_CONFIG=Caddyfile
+    [[ -n $CADDY_CONFIG && $CADDY_CONFIG != /* ]] && CADDY_CONFIG="$caddy_cwd/$CADDY_CONFIG"
+    # Only Caddyfiles can be extended automatically, not JSON configs or API-managed ones.
+    if [[ -n $CADDY_CONFIG && ($CADDY_CONFIG == *.json || (-n $adapter && $adapter != caddyfile)) ]]; then
+      CADDY_CONFIG=''
+    fi
+    echo "Found Caddy already running ($CADDY_BIN${CADDY_UNIT:+, service $CADDY_UNIT}${CADDY_CONFIG:+, config $CADDY_CONFIG}). DM-me will be added to it."
+  fi
 fi
 
 # ---- Packages ---------------------------------------------------------------------
@@ -122,7 +181,9 @@ fi
 NODE_BIN=$(command -v node)
 echo "Node $(node -v)"
 
-if ! command -v caddy >/dev/null; then
+if [[ $MANAGE_CADDY == yes && $CADDY_EXISTING == no ]] && command -v caddy >/dev/null; then
+  CADDY_BIN=$(command -v caddy) CADDY_CONFIG=/etc/caddy/Caddyfile CADDY_UNIT=caddy.service
+elif [[ $MANAGE_CADDY == yes && $CADDY_EXISTING == no ]]; then
   # Straight from Caddy's GitHub releases (checksum-verified), not an apt repository.
   step "Installing Caddy $CADDY_VERSION"
   arch=$(dpkg --print-architecture)
@@ -132,6 +193,7 @@ if ! command -v caddy >/dev/null; then
   echo "${CADDY_SHA512[$arch]}  /tmp/$deb" | sha512sum -c --quiet - || die "Caddy download failed its checksum."
   dpkg -i "/tmp/$deb" >/dev/null
   rm -f "/tmp/$deb"
+  CADDY_BIN=/usr/bin/caddy CADDY_CONFIG=/etc/caddy/Caddyfile CADDY_UNIT=caddy.service
 fi
 
 if [[ $BACKUPS == yes ]] && ! litestream version 2>/dev/null | grep -q "$LITESTREAM_VERSION"; then
@@ -217,23 +279,50 @@ fi
 
 # ---- HTTPS with Caddy ---------------------------------------------------------------------
 
-step "Configuring HTTPS for $DOMAIN"
-install -d /etc/caddy/sites
-render "$APP_DIR/deploy/Caddyfile" /etc/caddy/sites/dm-me.caddy
-if ! grep -q 'import /etc/caddy/sites/\*' /etc/caddy/Caddyfile 2>/dev/null; then
-  if [[ ! -f /etc/caddy/Caddyfile ]] || grep -q 'easy way to configure your Caddy' /etc/caddy/Caddyfile; then
-    # The package's placeholder config: replace it.
-    [[ -f /etc/caddy/Caddyfile ]] && cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.orig
-    echo 'import /etc/caddy/sites/*.caddy' >/etc/caddy/Caddyfile
+if [[ $MANAGE_CADDY == yes ]]; then
+  step "Configuring HTTPS for $DOMAIN"
+  install -d /etc/caddy/sites
+  render "$APP_DIR/deploy/Caddyfile" /etc/caddy/sites/dm-me.caddy
+  chmod 644 /etc/caddy/sites/dm-me.caddy
+  if [[ -z $CADDY_CONFIG ]]; then
+    warn "Couldn't find a Caddyfile for the running Caddy (JSON or API config?). Add DM-me to it yourself:"
+    manual_proxy_help >&2
   else
-    # Your own config: keep it and add DM-me alongside.
-    printf '\nimport /etc/caddy/sites/*.caddy\n' >>/etc/caddy/Caddyfile
+    backup=''
+    if ! grep -q 'import /etc/caddy/sites/\*' "$CADDY_CONFIG" 2>/dev/null; then
+      if [[ ! -f $CADDY_CONFIG ]] || grep -q 'easy way to configure your Caddy' "$CADDY_CONFIG"; then
+        # The package's placeholder config: replace it.
+        [[ -f $CADDY_CONFIG ]] && cp -p "$CADDY_CONFIG" "$CADDY_CONFIG.orig"
+        echo 'import /etc/caddy/sites/*.caddy' >"$CADDY_CONFIG"
+      else
+        # Your own config: keep everything in it and add one import line for DM-me.
+        backup="$CADDY_CONFIG.before-dm-me"
+        cp -p "$CADDY_CONFIG" "$backup"
+        printf '\n# Added by DM-me setup (sites in /etc/caddy/sites/)\nimport /etc/caddy/sites/*.caddy\n' >>"$CADDY_CONFIG"
+        echo "Added one import line to $CADDY_CONFIG (your original is saved as $backup)."
+      fi
+    fi
+    # A graceful reload: if Caddy rejects the new config it keeps serving the old one.
+    if [[ -n $CADDY_UNIT ]] && systemctl is-active --quiet "$CADDY_UNIT"; then
+      reload_caddy() { systemctl reload "$CADDY_UNIT"; }
+    elif [[ $CADDY_EXISTING == yes ]]; then
+      reload_caddy() { "$CADDY_BIN" reload --config "$CADDY_CONFIG" --adapter caddyfile; }
+    else
+      reload_caddy() { systemctl enable --quiet caddy && systemctl restart caddy; }
+    fi
+    if ! reload_caddy; then
+      # Undo everything so Caddy also starts cleanly after a reboot.
+      rm -f /etc/caddy/sites/dm-me.caddy
+      [[ -n $backup ]] && cp -p "$backup" "$CADDY_CONFIG"
+      echo "Removed the DM-me site again${backup:+ and put your original $CADDY_CONFIG back}; your other sites are unaffected." >&2
+      if [[ -n $CADDY_UNIT ]]; then journalctl -u "$CADDY_UNIT" -n 15 --no-pager >&2 || true; fi
+      die "Caddy didn't accept the DM-me site. See the messages above."
+    fi
   fi
+else
+  step "Skipping Caddy (CADDY=off)"
+  echo "Make sure your web server sends $DOMAIN to http://127.0.0.1:$PORT."
 fi
-caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 ||
-  die "Caddy's config is invalid. Check with: caddy validate --config /etc/caddy/Caddyfile"
-systemctl enable --quiet caddy
-systemctl reload caddy 2>/dev/null || systemctl restart caddy
 
 # ---- Done ----------------------------------------------------------------------------------
 
