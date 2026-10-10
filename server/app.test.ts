@@ -214,6 +214,39 @@ describe('photos', () => {
     expect((await me('POST', `/api/chat/messages/${replay.id}/open`)).status).toBe(410);
   });
 
+  it('sends a camera-roll photo the way the admin page says, whatever Nova picks', async () => {
+    const t = setup({ adminPassword: 'open sesame' });
+    const admin = t.browser();
+    await admin('POST', '/api/admin/login', { password: 'open sesame' });
+    const me = t.browser();
+    const novaPhoto = async (text: string) => {
+      await me('POST', '/api/chat/messages', { text });
+      const chat = await json<ChatDTO>(await me('POST', '/api/chat/reply', {}));
+      return chat.messages.filter((m) => m.sender === 'ai' && m.kind === 'photo').at(-1)!;
+    };
+
+    // The fake Nova sends the first photo in her roll as view-once.
+    expect((await novaPhoto('send me a photo')).photo?.mode).toBe('once');
+    const id = Number(t.fake.calls[0].photoRefs[0].slice(1));
+    const photos = (await json<{ photos: LibraryPhotoDTO[] }>(await admin('GET', '/api/admin/photos'))).photos;
+    expect(photos.find((p) => p.id === id)?.sendMode).toBe('auto');
+
+    expect((await admin('PATCH', `/api/admin/photos/${id}`, { sendMode: 'forever' })).status).toBe(400);
+    expect((await admin('PATCH', `/api/admin/photos/${id}`, { sendMode: 'keep' })).status).toBe(200);
+    const kept = await novaPhoto('send me a photo');
+    expect(kept.photo).toMatchObject({ mode: 'keep', maxViews: null });
+    expect(kept.photo?.url).toBeTruthy();
+
+    await admin('PATCH', `/api/admin/photos/${id}`, { sendMode: 'replay' });
+    expect((await novaPhoto('send me a photo')).photo).toMatchObject({ mode: 'replay', url: null, maxViews: 2 });
+    // Nova is told, so her messages can match how the photo arrives.
+    expect(t.fake.calls.at(-1)!.system).toContain(`p${id} (always sent as replayable)`);
+
+    // Changing the mode leaves the description alone.
+    const after = (await json<{ photos: LibraryPhotoDTO[] }>(await admin('GET', '/api/admin/photos'))).photos;
+    expect(after.find((p) => p.id === id)).toMatchObject({ sendMode: 'replay', description: photos.find((p) => p.id === id)!.description });
+  });
+
   it('refuses files that are not images', async () => {
     const t = setup();
     const me = t.browser();

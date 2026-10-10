@@ -1,4 +1,14 @@
-import type { AdminStoryDTO, ChatDTO, LibraryPhotoDTO, MessageDTO, OpenPhotoDTO, PhotoMode, StoryBg, StoryDTO } from '../shared/types';
+import type {
+  AdminStoryDTO,
+  ChatDTO,
+  LibraryPhotoDTO,
+  MessageDTO,
+  OpenPhotoDTO,
+  PhotoMode,
+  SendMode,
+  StoryBg,
+  StoryDTO,
+} from '../shared/types';
 
 export class ApiError extends Error {
   constructor(
@@ -72,6 +82,8 @@ export const api = {
     },
     describePhoto: (id: number, description: string) =>
       request<{ ok: true }>('PATCH', `/api/admin/photos/${id}`, { description }),
+    setSendMode: (id: number, sendMode: SendMode) =>
+      request<{ ok: true }>('PATCH', `/api/admin/photos/${id}`, { sendMode }),
     removePhoto: (id: number) => request<{ ok: true }>('DELETE', `/api/admin/photos/${id}`),
     syncPhotos: () => request<{ added: number; remaining: number; skipped: string[] }>('POST', '/api/admin/photos/sync'),
   },

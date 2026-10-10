@@ -113,6 +113,12 @@ await page.getByText('Sample photo').first().waitFor();
 await page.locator('input[type=file]').setInputFiles(path.resolve('server/assets/coffee.jpg'));
 await page.getByRole('button', { name: 'Add to camera roll' }).click();
 await page.getByRole('heading', { name: '5 photos' }).waitFor({ timeout: 10_000 });
+// The fake Nova always sends her oldest photo (last in the list) as view-once; make it stay in the chat instead.
+await page.getByLabel('Sends as').last().selectOption('keep');
+await page.waitForTimeout(500);
+await page.reload();
+await page.getByRole('heading', { name: '5 photos' }).waitFor();
+if ((await page.getByLabel('Sends as').last().inputValue()) !== 'keep') throw new Error('Send mode was not saved');
 await shot('14-admin-camera-roll');
 await page.getByRole('tab', { name: 'Stories' }).click();
 await page.getByRole('radio', { name: 'Text story' }).click();
@@ -121,6 +127,10 @@ await page.getByRole('button', { name: 'Post story' }).click();
 await page.getByText('New this week').waitFor();
 await shot('15-admin-stories');
 await page.getByRole('link', { name: 'Back to chat' }).click();
+await input.fill('one more photo please');
+await input.press('Enter');
+await page.getByRole('img', { name: 'Photo from Nova' }).last().waitFor({ timeout: 10_000 });
+await shot('15b-kept-photo-from-nova');
 
 step('profile sheet and delete chat');
 await page.getByRole('button', { name: 'About Nova' }).click();

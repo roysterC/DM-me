@@ -6,13 +6,13 @@ What visitors can do:
 
 - **Chat.** Send a few messages in a row and Nova answers them together, in short bubbles with a typing indicator, then shows "Seen". Double-tap one of Nova's messages to heart it; Nova sometimes hearts yours.
 - **Send photos.** Take one with the camera or pick one from the library, then choose **View once**, **Allow replay** or **Keep in chat**. Nova looks at the photo and responds to what's in it. A view-once photo is shown to Nova once and then deleted.
-- **Get photos from Nova.** Nova can send photos from her camera roll, sometimes as view-once or replay. Tap to view: the photo opens full screen for 5 seconds, then the bubble changes to "Tap to replay" or "Opened". The server enforces the limit.
+- **Get photos from Nova.** Nova can send photos from her camera roll as view-once, replay or kept photos. She picks the mode herself (a quick pic or selfie tends to disappear, a recipe stays), unless you've set the photo to always go out one way on the admin page. Tap to view: the photo opens full screen for 5 seconds, then the bubble changes to "Tap to replay" or "Opened". The server enforces the limit.
 - **Watch stories.** Nova's avatar gets the story ring when there's something new. Tap left or right to move, hold to pause, heart a story, or reply (the reply lands in the chat as "You replied to their story"). Stories expire after 24 hours.
 - **Delete the chat** from Nova's profile sheet, which also deletes the photos they sent.
 
 What you (the owner) can do at **`/admin`**, unlocked with `ADMIN_PASSWORD`:
 
-- **Camera roll:** add the photos Nova can send. Each photo needs a description, because that's how Nova picks one; leave it empty and Nova writes it. You can also upload straight into the bucket's `library/` folder and press **Sync from bucket**.
+- **Camera roll:** add the photos Nova can send. Each photo needs a description, because that's how Nova picks one; leave it empty and Nova writes it. **Sends as** sets how each photo arrives: **Nova decides** (the default), or always **View once**, **Allow replay** or **Keep in chat**. You can also upload straight into the bucket's `library/` folder and press **Sync from bucket**.
 - **Stories:** post photo or text stories and delete them.
 
 ## Run it locally

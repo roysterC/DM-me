@@ -1225,6 +1225,24 @@ a {
   line-height: 19px;
   resize: vertical;
 }
+.admin-send {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.admin-send select {
+  min-height: 32px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--chip-line);
+  background: var(--field);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
 .admin-body code {
   font-size: 13px;
   color: var(--fg);

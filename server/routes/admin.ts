@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { type AdminStoryDTO, STORY_BGS, type StoryBg } from '../../shared/types';
+import { type AdminStoryDTO, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
 import type { Deps } from '../app';
 import type { LibraryPhotoRow, StoryRow } from '../db';
 import { nowIso } from '../db';
@@ -7,6 +7,8 @@ import { clientIp, grantAdmin, isAdmin, passwordMatches, RateLimiter, revokeAdmi
 import { addLibraryPhoto, listLibrary, syncLibrary, toLibraryDTO } from '../library';
 import { MediaError } from '../media';
 import { STORY_HOURS } from '../stories';
+
+const SEND_MODES: SendMode[] = ['auto', 'once', 'replay', 'keep'];
 
 /** Nova's stories and camera roll, behind ADMIN_PASSWORD. */
 export function adminRoutes({ db, config, media, responder }: Deps) {
@@ -133,12 +135,21 @@ export function adminRoutes({ db, config, media, responder }: Deps) {
     return c.json({ photos: await Promise.all(added.map((r) => toLibraryDTO(r, media))) });
   });
 
+  // Edits a photo's description and/or how Nova sends it.
   app.patch('/photos/:id', async (c) => {
-    const body = await c.req.json<{ description?: string }>().catch(() => ({}) as never);
-    const description = String(body.description ?? '').trim().slice(0, 300);
-    if (!description) return c.json({ error: 'Describe the photo so Nova knows when to send it.' }, 400);
-    const res = db.prepare('UPDATE library_photos SET description = ? WHERE id = ? AND hidden = 0').run(description, Number(c.req.param('id')));
-    if (res.changes === 0) return c.json({ error: 'Not found.' }, 404);
+    const body = await c.req.json<{ description?: string; sendMode?: string }>().catch(() => ({}) as never);
+    const id = Number(c.req.param('id'));
+    const exists = db.prepare('SELECT 1 FROM library_photos WHERE id = ? AND hidden = 0').get(id);
+    if (!exists) return c.json({ error: 'Not found.' }, 404);
+    if (body.description === undefined && body.sendMode === undefined) return c.json({ error: 'Nothing to change.' }, 400);
+    if (body.sendMode !== undefined && !(SEND_MODES as string[]).includes(body.sendMode)) {
+      return c.json({ error: 'Unknown send mode.' }, 400);
+    }
+    const description = body.description === undefined ? null : String(body.description).trim().slice(0, 300);
+    if (description === '') return c.json({ error: 'Describe the photo so Nova knows when to send it.' }, 400);
+    db.prepare(
+      'UPDATE library_photos SET description = COALESCE(?, description), send_mode = COALESCE(?, send_mode) WHERE id = ?',
+    ).run(description, (body.sendMode as SendMode | undefined) ?? null, id);
     return c.json({ ok: true });
   });
 
