@@ -18,6 +18,6 @@ console.log(
 );
 if (!config.adminPassword) console.log('Admin page disabled: set ADMIN_PASSWORD to manage stories and photos.');
 
-serve({ fetch: app.fetch, port: config.port }, (info) => {
-  console.log(`DM-me server listening on http://localhost:${info.port}`);
+serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
+  console.log(`DM-me server listening on http://${config.host}:${info.port}`);
 });

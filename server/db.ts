@@ -136,7 +136,10 @@ export function openDb(dataDir: string): DB {
     file = path.join(dataDir, 'dm-me.sqlite');
   }
   const db = new Database(file);
+  // WAL is also what Litestream needs to back the database up continuously.
   db.pragma('journal_mode = WAL');
+  // Wait instead of failing while a backup briefly holds the file.
+  db.pragma('busy_timeout = 5000');
   db.pragma('foreign_keys = ON');
   const hasOldSchema = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'").get();
   if (hasOldSchema) {

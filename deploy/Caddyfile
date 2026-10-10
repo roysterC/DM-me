@@ -1,0 +1,5 @@
+# Installed by deploy/setup.sh as /etc/caddy/sites/dm-me.caddy.
+@DOMAIN@ {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:@PORT@
+}
