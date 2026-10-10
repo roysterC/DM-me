@@ -71,9 +71,10 @@ if [[ -z $DOMAIN || $DOMAIN == chat.example.com ]]; then
   ip=$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)
   if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     die "Set DOMAIN in $ENV_FILE. No domain? Use this server's free nip.io address:
-  DOMAIN=${ip//./-}.nip.io"
+  DOMAIN=dm-me-${ip//./-}.nip.io
+(The dm-me- part keeps it apart from any other site on this server using ${ip//./-}.nip.io.)"
   fi
-  die "Set DOMAIN in $ENV_FILE. No domain? Use <your server's IP with dashes>.nip.io, e.g. 203-0-113-10.nip.io"
+  die "Set DOMAIN in $ENV_FILE. No domain? Use dm-me-<your server's IP with dashes>.nip.io, e.g. dm-me-203-0-113-10.nip.io"
 fi
 [[ -n $(env_get SECRET) ]] || die "SECRET is empty in $ENV_FILE. Delete the file and run setup again to regenerate it."
 [[ -n $(env_get ANTHROPIC_API_KEY) ]] || warn "ANTHROPIC_API_KEY is empty: the site works but Nova won't reply."
@@ -342,11 +343,27 @@ if [[ $MANAGE_CADDY == yes ]]; then
       reload_caddy() { systemctl enable --quiet caddy && systemctl restart caddy; }
     fi
     if ! reload_caddy; then
+      # Ask Caddy why before undoing, while the DM-me site is still in place.
+      why=$("$CADDY_BIN" adapt --config "$CADDY_CONFIG" --adapter caddyfile 2>&1 >/dev/null || true)
       # Undo everything so Caddy also starts cleanly after a reboot.
       rm -f /etc/caddy/sites/dm-me.caddy
       [[ -n $backup ]] && cp -p "$backup" "$CADDY_CONFIG"
       echo "Removed the DM-me site again${backup:+ and put your original $CADDY_CONFIG back}; your other sites are unaffected." >&2
+      if [[ $why == *"ambiguous site definition"* ]]; then
+        if [[ $DOMAIN =~ ([0-9]+-[0-9]+-[0-9]+-[0-9]+\.(nip|sslip)\.io)$ ]]; then
+          suggestion="dm-me-${BASH_REMATCH[1]}"
+          [[ $suggestion != "$DOMAIN" ]] || suggestion="dm-me-2-${BASH_REMATCH[1]}"
+        elif [[ $DOMAIN == *.*.* ]]; then
+          suggestion="dm.${DOMAIN#*.}"
+        else
+          suggestion="dm.$DOMAIN"
+        fi
+        die "Another site in your Caddy config already uses $DOMAIN, so DM-me needs a name of its own.
+Change DOMAIN in $ENV_FILE, for example to DOMAIN=$suggestion, and run setup again.
+(With a nip.io name there's nothing else to do. With your own domain, add a DNS record for it first.)"
+      fi
       if [[ -n $CADDY_UNIT ]]; then journalctl -u "$CADDY_UNIT" -n 15 --no-pager >&2 || true; fi
+      [[ -z $why ]] || printf '%s\n' "$why" | tail -n 5 >&2
       die "Caddy didn't accept the DM-me site. See the messages above."
     fi
   fi

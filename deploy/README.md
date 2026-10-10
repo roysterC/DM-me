@@ -32,7 +32,9 @@ After adding them, set `CADDY=off` in `/etc/dm-me/dm-me.env` and run setup again
 
 ## No domain? Use nip.io
 
-[nip.io](https://nip.io) is a free service where the name contains the IP address: `203-0-113-10.nip.io` always points to `203.0.113.10`. There's nothing to register: set `DOMAIN` to your server's IP with dashes plus `.nip.io`, and skip step 1 below. If you leave `DOMAIN` unset, setup prints the right value for your server. Caddy gets a real HTTPS certificate for it, so the camera works.
+[nip.io](https://nip.io) is a free service where the name contains the IP address: `203-0-113-10.nip.io` always points to `203.0.113.10`, and so does anything in front of it, like `dm-me-203-0-113-10.nip.io`. There's nothing to register: set `DOMAIN` to `dm-me-` plus your server's IP with dashes plus `.nip.io`, and skip step 1 below. If you leave `DOMAIN` unset, setup prints the right value for your server. Caddy gets a real HTTPS certificate for it, so the camera works.
+
+**Each site on the server needs its own name.** If another site (a CRM, say) already uses `203-0-113-10.nip.io`, DM-me can't share it; the `dm-me-` prefix gives it a separate one at no cost. If you pick a name that's already taken, setup says so, leaves the other site as it was, and suggests a free one.
 
 Trade-offs to know:
 
@@ -126,6 +128,7 @@ Litestream keeps short-term history and compacts it over time, so recent points 
   ```
 
 - **"Failed to query local AF_VSOCK CID".** A harmless warning systemd prints on many virtual servers. Ignore it.
+- **Setup says another site already uses your `DOMAIN`.** Two sites can't share a name. Set `DOMAIN` in `/etc/dm-me/dm-me.env` to the name setup suggests (for nip.io, `dm-me-<your IP with dashes>.nip.io`) and run setup again.
 - **Port 3000 is already in use** (another site's app, say). Setup detects this, uses the next free port and saves it as `PORT` in `/etc/dm-me/dm-me.env`. If you set `PORT` yourself, it must be free.
 - **Nova doesn't reply.** Check `ANTHROPIC_API_KEY` in `/etc/dm-me/dm-me.env`, restart, and look at `journalctl -u dm-me -n 50`.
 - **Backups aren't appearing in the bucket.** Look at `journalctl -u dm-me-backup -n 50`. The R2 token needs **Object Read & Write** on the bucket.
