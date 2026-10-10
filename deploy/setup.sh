@@ -22,6 +22,11 @@ declare -A LITESTREAM_SHA256=(
   [x86_64]=a191a0928884d1820fab1f866ede1d0d5811c323d0587bf863a43481a82a7668
   [arm64]=7d34ed3356844fe3dd127462b9f4ea7e79ef14679eadf2fed6c737dcb797358e
 )
+CADDY_VERSION=2.11.7
+declare -A CADDY_SHA512=(
+  [amd64]=47e8351c2317b427af14a103e763ca1118a3d2396a88b4c0669cdec9c4a68a957690194e2423a1633f53135741c33a41bdac2b55515b7d0f7adc8b733add50d9
+  [arm64]=ac32f03f0eea04021f2d4e5d89bfd01b84ead115f2eba9d2a0d06447e86d4af932899e56f090993a566d0925dbd1063002929b395541a8c5f5e51d7039f7375a
+)
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[33mWarning:\033[0m %s\n' "$*" >&2; }
@@ -63,7 +68,14 @@ if [[ ! -f $ENV_FILE ]]; then
 fi
 
 DOMAIN=$(env_get DOMAIN)
-[[ -n $DOMAIN && $DOMAIN != chat.example.com ]] || die "Set DOMAIN in $ENV_FILE."
+if [[ -z $DOMAIN || $DOMAIN == chat.example.com ]]; then
+  ip=$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)
+  if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    die "Set DOMAIN in $ENV_FILE. No domain? Use this server's free nip.io address:
+  DOMAIN=${ip//./-}.nip.io"
+  fi
+  die "Set DOMAIN in $ENV_FILE. No domain? Use <your server's IP with dashes>.nip.io, e.g. 203-0-113-10.nip.io"
+fi
 [[ -n $(env_get SECRET) ]] || die "SECRET is empty in $ENV_FILE. Delete the file and run setup again to regenerate it."
 [[ -n $(env_get ANTHROPIC_API_KEY) ]] || warn "ANTHROPIC_API_KEY is empty: the site works but Nova won't reply."
 [[ -n $(env_get ADMIN_PASSWORD) ]] || warn "ADMIN_PASSWORD is empty: the /admin page will be off."
@@ -91,8 +103,13 @@ fi
 
 step "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
+# Earlier versions of this script added Caddy's Cloudsmith apt repository, which now answers
+# "402 Payment Required" and breaks every apt-get update. Remove it if it's there.
+if grep -qs 'dl.cloudsmith.io/public/caddy' /etc/apt/sources.list.d/caddy-stable.list; then
+  rm -f /etc/apt/sources.list.d/caddy-stable.list /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+fi
 apt-get update -qq
-apt-get install -y -qq curl ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https >/dev/null
+apt-get install -y -qq curl ca-certificates gnupg >/dev/null
 
 node_major=$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/' || echo 0)
 if [[ ${node_major:-0} -lt $NODE_MAJOR ]]; then
@@ -106,12 +123,15 @@ NODE_BIN=$(command -v node)
 echo "Node $(node -v)"
 
 if ! command -v caddy >/dev/null; then
-  step "Installing Caddy"
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' >/etc/apt/sources.list.d/caddy-stable.list
-  chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg /etc/apt/sources.list.d/caddy-stable.list
-  apt-get update -qq
-  apt-get install -y -qq caddy >/dev/null
+  # Straight from Caddy's GitHub releases (checksum-verified), not an apt repository.
+  step "Installing Caddy $CADDY_VERSION"
+  arch=$(dpkg --print-architecture)
+  [[ -n ${CADDY_SHA512[$arch]:-} ]] || die "No Caddy package for $arch. Install Caddy yourself, then run setup again."
+  deb="caddy_${CADDY_VERSION}_linux_${arch}.deb"
+  curl -fsSL -o "/tmp/$deb" "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/$deb"
+  echo "${CADDY_SHA512[$arch]}  /tmp/$deb" | sha512sum -c --quiet - || die "Caddy download failed its checksum."
+  dpkg -i "/tmp/$deb" >/dev/null
+  rm -f "/tmp/$deb"
 fi
 
 if [[ $BACKUPS == yes ]] && ! litestream version 2>/dev/null | grep -q "$LITESTREAM_VERSION"; then

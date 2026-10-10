@@ -11,13 +11,24 @@ The app itself only listens on `127.0.0.1:3000`; the outside world reaches it th
 ## What you need
 
 - A VPS running **Ubuntu 22.04 or 24.04, or Debian 12**, with root (sudo) access. 1 GB of memory is comfortable; with less, add swap (below).
-- A **domain or subdomain** for the site, e.g. `chat.yourdomain.com`. The browser camera only works over HTTPS, and HTTPS needs a domain.
+- A **domain or subdomain** for the site, e.g. `chat.yourdomain.com`. The browser camera only works over HTTPS, and HTTPS needs a domain. **No domain?** Use a free nip.io address instead (see below).
 - A **Cloudflare R2 bucket** with an API token (see "Photo storage" in the main README). It holds the photos *and* the database backups.
 - Your **Anthropic API key**, and an **admin password** you choose.
 
+## No domain? Use nip.io
+
+[nip.io](https://nip.io) is a free service where the name contains the IP address: `203-0-113-10.nip.io` always points to `203.0.113.10`. There's nothing to register: set `DOMAIN` to your server's IP with dashes plus `.nip.io`, and skip step 1 below. If you leave `DOMAIN` unset, setup prints the right value for your server. Caddy gets a real HTTPS certificate for it, so the camera works.
+
+Trade-offs to know:
+
+- **It depends on nip.io's servers.** If they're down, nobody can find your site, even though your server is fine.
+- **Certificates are shared.** Let's Encrypt allows a large but shared number of nip.io certificates per week. If Caddy's log mentions a rate limit, change `nip.io` to `sslip.io` in `DOMAIN` (the same service under another name) and run setup again.
+- **The address changes if the IP changes**, for example if you rebuild the VPS or later buy a domain. A new address is a new site to the browser: visitors start new chats (their old ones are still in the database, just not reachable from the new address), and you log in to `/admin` again.
+- **It looks temporary** to visitors. A real domain costs about $10 a year (Cloudflare Registrar sells them at cost), and switching is just changing `DOMAIN` and running setup again.
+
 ## First install
 
-**1. Point the domain at the server.** Add an `A` record for your domain with the VPS's IP address. If the domain is on Cloudflare, set the record to **DNS only** (grey cloud) at least until the first certificate is issued.
+**1. Point the domain at the server** (skip this with nip.io). Add an `A` record for your domain with the VPS's IP address. If the domain is on Cloudflare, set the record to **DNS only** (grey cloud) at least until the first certificate is issued.
 
 **2. Open ports 80 and 443** in your VPS provider's firewall. If you use `ufw` on the server:
 
