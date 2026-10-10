@@ -13,9 +13,9 @@ import { prepareImage, type PreparedImage } from '../lib/image';
 import { buildThread, type UiMessage } from '../lib/thread';
 import { seenLabel } from '../lib/time';
 
-/** How long to wait after the user's last message before Nova answers, so bursts get one reply. */
+/** How long to wait after the user's last message before Alisa answers, so bursts get one reply. */
 const REPLY_DELAY_MS = 1200;
-/** Pause between Nova's bubbles when she sends several. */
+/** Pause between Alisa's bubbles when she sends several. */
 const BUBBLE_GAP_MS = 900;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -49,7 +49,7 @@ export function ChatPage() {
 
   const aiConnected = chat?.aiConnected ?? true;
 
-  // ---- Nova's replies -------------------------------------------------------
+  // ---- Alisa's replies -------------------------------------------------------
 
   const runReply = useCallback(async () => {
     if (replying.current) return;
@@ -81,12 +81,12 @@ export function ChatPage() {
         });
       }
     } catch (err) {
-      setReplyError(err instanceof ApiError ? err.message : 'Nova couldn’t reply. Try again.');
+      setReplyError(err instanceof ApiError ? err.message : 'Alisa couldn’t reply. Try again.');
     } finally {
       clearTimeout(typingTimer);
       setTyping(false);
       replying.current = false;
-      // Anything sent while Nova was answering gets its own reply.
+      // Anything sent while Alisa was answering gets its own reply.
       const latest = messagesRef.current.at(-1);
       if (latest && latest.sender === 'user' && !latest.pending && !latest.readAt) scheduleReply(REPLY_DELAY_MS);
     }
@@ -296,7 +296,7 @@ export function ChatPage() {
         </div>
         <button type="button" className="header-title" onClick={() => setInfo(true)}>
           <span className="header-name">{persona.name}</span>
-          <span className="header-status">{typing ? 'typing…' : aiConnected ? 'AI · Active now' : 'AI · Offline'}</span>
+          <span className="header-status">{typing ? 'typing…' : aiConnected ? 'Active now' : 'Offline'}</span>
         </button>
         <button type="button" className="icon-btn" onClick={() => setInfo(true)} aria-label={`About ${persona.name}`}>
           <IconInfo size={26} />
@@ -313,10 +313,7 @@ export function ChatPage() {
             label={`View ${persona.name}’s story`}
           />
           <h1>{persona.name}</h1>
-          <p>
-            {persona.handle} · AI on DM-me
-          </p>
-          <p className="small">Replies are AI-generated and can be wrong</p>
+          <p>{persona.handle} · DM-me</p>
           <button type="button" className="soft-btn" onClick={() => setInfo(true)}>
             View profile
           </button>

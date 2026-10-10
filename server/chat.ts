@@ -1,6 +1,6 @@
 import type { MessageDTO, StoryRefDTO } from '../shared/types';
 import { buildConversation } from './ai/context';
-import { GREETING, systemPrompt } from './ai/nova';
+import { GREETING, systemPrompt } from './ai/persona';
 import type { Responder } from './ai/responder';
 import type { DB, MessageRow, StoryRow } from './db';
 import { nowIso } from './db';
@@ -46,7 +46,7 @@ export function maxViews(mode: string | null): number | null {
   return null;
 }
 
-/** Keys of uploaded photos that only this conversation uses (Nova's camera roll is shared). */
+/** Keys of uploaded photos that only this conversation uses (Alisa's camera roll is shared). */
 export function ownedUploads(rows: MessageRow[]): string[] {
   return rows.filter((r) => r.sender === 'user' && r.media_key?.startsWith('uploads/')).map((r) => r.media_key!);
 }
@@ -95,7 +95,7 @@ export async function toMessageDTO(
 }
 
 /**
- * Generates Nova's reply to everything the visitor has sent since her last
+ * Generates Alisa's reply to everything the visitor has sent since her last
  * message. One reply runs per conversation at a time.
  */
 export class ReplyService {
@@ -149,7 +149,7 @@ export class ReplyService {
 
     const toDelete: string[] = [];
     this.db.transaction(() => {
-      // Nova has now seen the view-once photos; they can't be opened again.
+      // Alisa has now seen the view-once photos; they can't be opened again.
       for (const id of opening) {
         markOpened.run(id);
         const row = keyOf.get(id) as { media_key: string | null } | undefined;
@@ -162,7 +162,7 @@ export class ReplyService {
       for (const text of reply.messages) insertText.run(conversationId, text, now);
       const p = reply.photo ? byRef.get(reply.photo.ref) : undefined;
       if (reply.photo && p) {
-        // A photo set to always go out one way on the admin page overrides Nova's choice.
+        // A photo set to always go out one way on the admin page overrides Alisa's choice.
         const mode = p.send_mode === 'auto' ? reply.photo.mode : p.send_mode;
         insertPhoto.run(conversationId, p.media_key, p.media_mime, p.width, p.height, mode, now);
       }

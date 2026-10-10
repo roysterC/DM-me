@@ -1,5 +1,5 @@
 import type { StoryDTO } from '../shared/types';
-import { DEFAULT_STORIES } from './ai/nova';
+import { DEFAULT_STORIES } from './ai/persona';
 import type { DB, StoryRow } from './db';
 import { nowIso } from './db';
 import type { MediaStore } from './media';
@@ -14,7 +14,7 @@ export function activeStoryMap(db: DB): Map<number, StoryRow> {
   return new Map(activeStories(db).map((s) => [s.id, s]));
 }
 
-/** Posts Nova's sample stories again whenever none are live, so the ring never goes empty. */
+/** Posts Alisa's sample stories again whenever none are live, so the ring never goes empty. */
 export function ensureStories(db: DB, enabled: boolean) {
   if (!enabled || activeStories(db).length > 0) return;
   const insert = db.prepare(

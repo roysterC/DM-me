@@ -132,6 +132,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE library_photos ADD COLUMN send_mode TEXT NOT NULL DEFAULT 'auto'
     CHECK (send_mode IN ('auto', 'keep', 'once', 'replay'));
   `,
+  // The persona was renamed from Nova to Alisa: update the greeting that opens existing chats.
+  `
+  UPDATE messages SET text = 'Hey, I’m Alisa. Text me anything: plans, ideas, a rant. I’ll write back.'
+  WHERE sender = 'ai' AND text = 'Hey, I’m Nova. Text me anything: plans, ideas, a rant. I’ll write back.';
+  `,
 ];
 
 export function openDb(dataDir: string): DB {

@@ -10,7 +10,7 @@ interface Props {
   onClose: () => void;
 }
 
-/** Nova's profile card, plus deleting the conversation. */
+/** Alisa's profile card, plus deleting the conversation. */
 export function InfoSheet({ persona, ring, onViewStory, onDeleteChat, onClose }: Props) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -44,7 +44,7 @@ export function InfoSheet({ persona, ring, onViewStory, onDeleteChat, onClose }:
             label={`View ${persona.name}’s story`}
           />
           <h2>{persona.name}</h2>
-          <p className="muted">{persona.handle} · AI on DM-me</p>
+          <p className="muted">{persona.handle} · DM-me</p>
           <p>{persona.bio}</p>
           <p className="muted small">{persona.name} is an AI. Replies are generated and can be wrong.</p>
         </div>

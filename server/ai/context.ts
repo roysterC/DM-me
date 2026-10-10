@@ -25,10 +25,10 @@ export function formatStamp(iso: string, timeZone: string): string {
 
 /**
  * Turns stored chat rows into a Claude conversation. User rows become text and
- * image blocks; Nova's rows become the JSON replies she produced. Returns the
- * ids of view-once photos Nova is seeing for the first (and only) time.
+ * image blocks; Alisa's rows become the JSON replies she produced. Returns the
+ * ids of view-once photos Alisa is seeing for the first (and only) time.
  *
- * `refByKey` maps camera-roll photo keys to the references Nova uses for them.
+ * `refByKey` maps camera-roll photo keys to the references Alisa uses for them.
  */
 export async function buildConversation(
   rows: MessageRow[],
