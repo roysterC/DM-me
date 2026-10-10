@@ -81,6 +81,8 @@ export function createApp(db: DB, config: Config, responder: Responder | null, s
   visitorApi.route('/chat', chatRoutes(deps));
   visitorApi.route('/stories', storyRoutes(deps));
 
+  // Lets deploy scripts confirm it's DM-me answering on the port, not some other program.
+  app.get('/api/health', (c) => c.json({ app: 'dm-me', ok: true }));
   app.route('/api/media', mediaRoutes(deps));
   app.route('/api/admin', adminRoutes(deps));
   app.route('/api', visitorApi);

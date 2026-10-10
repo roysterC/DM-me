@@ -15,7 +15,6 @@ ENV_DIR=/etc/dm-me
 ENV_FILE=$ENV_DIR/dm-me.env
 DATA_DIR=/var/lib/dm-me
 APP_USER=dmme
-PORT=3000
 NODE_MAJOR=22
 LITESTREAM_VERSION=0.5.17
 declare -A LITESTREAM_SHA256=(
@@ -88,6 +87,34 @@ if [[ -n $(env_get S3_BUCKET) ]]; then
   BACKUPS=yes
 else
   warn "No bucket configured: photos stay on this server's disk and the database is NOT backed up."
+fi
+
+# ---- Which local port does DM-me use? -------------------------------------------------
+# 3000 unless PORT is set. If another program (another site's app, say) already listens on
+# 3000, use the next free port and save it in the env file so updates keep using it.
+
+is_dm_me() { curl -fsS --max-time 3 "http://127.0.0.1:$1/api/health" 2>/dev/null | grep -q '"app":"dm-me"'; }
+port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+
+PORT=$(env_get PORT)
+if [[ -n $PORT ]]; then
+  if ! [[ $PORT =~ ^[0-9]+$ ]] || ((PORT < 1024 || PORT > 65535)); then
+    die "PORT in $ENV_FILE must be a number between 1024 and 65535."
+  fi
+  if port_in_use "$PORT" && ! is_dm_me "$PORT"; then
+    die "Port $PORT (PORT in $ENV_FILE) is already used by another program. Change it to a free port."
+  fi
+else
+  PORT=3000
+  if port_in_use "$PORT" && ! is_dm_me "$PORT"; then
+    PORT=''
+    for candidate in $(seq 3001 3999); do
+      if ! port_in_use "$candidate"; then PORT=$candidate; break; fi
+    done
+    [[ -n $PORT ]] || die "Ports 3000-3999 are all in use. Set PORT in $ENV_FILE to a free port."
+    printf '\n# Chosen by setup because port 3000 was already in use on this server.\nPORT=%s\n' "$PORT" >>"$ENV_FILE"
+    echo "Port 3000 is already used by another program here, so DM-me will use port $PORT (saved in $ENV_FILE)."
+  fi
 fi
 
 # ---- Who serves ports 80 and 443? ---------------------------------------------------
@@ -266,7 +293,7 @@ systemctl restart dm-me.service
 
 healthy=no
 for _ in $(seq 1 30); do
-  if curl -fsS -o /dev/null "http://127.0.0.1:$PORT/api/admin/me"; then healthy=yes; break; fi
+  if is_dm_me "$PORT"; then healthy=yes; break; fi
   sleep 1
 done
 if [[ $healthy != yes ]]; then

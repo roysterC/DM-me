@@ -61,6 +61,13 @@ function setup(opts: { connected?: boolean; adminPassword?: string; dailyReplyLi
 
 const json = async <T>(res: Response) => (await res.json()) as T;
 
+describe('health check', () => {
+  it('identifies itself as DM-me', async () => {
+    const t = setup();
+    expect(await json(await t.app.request('http://localhost/api/health'))).toEqual({ app: 'dm-me', ok: true });
+  });
+});
+
 describe('visitors', () => {
   it('gives each browser its own chat without any sign-up', async () => {
     const t = setup();
