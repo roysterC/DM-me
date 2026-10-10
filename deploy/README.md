@@ -15,6 +15,21 @@ The app itself only listens on `127.0.0.1:3000`; the outside world reaches it th
 - A **Cloudflare R2 bucket** with an API token (see "Photo storage" in the main README). It holds the photos *and* the database backups.
 - Your **Anthropic API key**, and an **admin password** you choose.
 
+## Already running Caddy for another site?
+
+Setup reuses it: it doesn't install a second Caddy or restart yours.
+
+- **What it finds:** the running Caddy, wherever it's installed, and the Caddyfile it was started with.
+- **What it changes:** it saves a copy of your Caddyfile as `<your Caddyfile>.before-dm-me`, adds one line at the end (`import /etc/caddy/sites/*.caddy`), and puts the DM-me site in `/etc/caddy/sites/dm-me.caddy`. Your other site's config is untouched.
+- **How it applies it:** with a graceful reload, so your other site keeps serving. If Caddy rejects the result, setup removes the DM-me site, restores your original Caddyfile and stops.
+
+Setup prints the few lines to add yourself instead when it can't safely change Caddy:
+- Caddy runs inside Docker.
+- Caddy uses a JSON or API-managed config.
+- Another web server, such as nginx or Apache, holds ports 80 and 443.
+
+After adding them, set `CADDY=off` in `/etc/dm-me/dm-me.env` and run setup again.
+
 ## No domain? Use nip.io
 
 [nip.io](https://nip.io) is a free service where the name contains the IP address: `203-0-113-10.nip.io` always points to `203.0.113.10`. There's nothing to register: set `DOMAIN` to your server's IP with dashes plus `.nip.io`, and skip step 1 below. If you leave `DOMAIN` unset, setup prints the right value for your server. Caddy gets a real HTTPS certificate for it, so the camera works.
@@ -102,7 +117,7 @@ Litestream keeps short-term history and compacts it over time, so recent points 
 ## Troubleshooting
 
 - **The site doesn't load over HTTPS.** Check that the domain resolves to this server (`dig +short your-domain`) and that ports 80 and 443 are open. Caddy's log explains certificate problems: `journalctl -u caddy -n 50`.
-- **Setup says something else is using port 80 or 443.** Another web server (often nginx or Apache) is installed. Stop and disable it, or keep it and add a site that proxies your domain to `127.0.0.1:3000`, skipping Caddy.
+- **Setup says something else is using port 80 or 443.** Another web server (often nginx or Apache) is installed. Either stop and disable it, or keep it: add the site setup printed (proxy your domain to `127.0.0.1:3000`), set `CADDY=off` in `/etc/dm-me/dm-me.env`, and run setup again.
 - **The build gets killed on a small server.** Add swap, then run setup again:
 
   ```bash
@@ -122,4 +137,4 @@ Litestream keeps short-term history and compacts it over time, so recent points 
 | `/etc/dm-me/litestream.yml` | Backup settings |
 | `/var/lib/dm-me` | The database (the only folder the app can write to) |
 | `/etc/systemd/system/dm-me.service`, `dm-me-backup.service` | The app and backup services, running as the `dmme` user |
-| `/etc/caddy/sites/dm-me.caddy` | The HTTPS site. Your own Caddy sites, if any, are left alone |
+| `/etc/caddy/sites/dm-me.caddy` | The HTTPS site, imported by one line at the end of your Caddyfile. Your own Caddy sites are left alone |
