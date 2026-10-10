@@ -1,0 +1,75 @@
+# Tests every push to main, then deploys it to the VPS by running deploy/update.sh there.
+# One-time setup: run deploy/enable-auto-deploy.sh on the server and add the secrets it prints
+# (VPS_HOST, VPS_SSH_KEY, VPS_KNOWN_HOSTS, and VPS_PORT if SSH isn't on 22).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time; a newer push waits for the running one instead of cutting it off.
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check the secrets are set
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          missing=()
+          [ -n "$HOST" ] || missing+=(VPS_HOST)
+          [ -n "$KEY" ] || missing+=(VPS_SSH_KEY)
+          [ -n "$KNOWN_HOSTS" ] || missing+=(VPS_KNOWN_HOSTS)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing secrets: ${missing[*]}. Run deploy/enable-auto-deploy.sh on the server and add what it prints."
+            exit 1
+          fi
+
+      - name: Deploy over SSH
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          PORT: ${{ secrets.VPS_PORT || '22' }}
+          KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          dir="$RUNNER_TEMP/ssh"
+          install -m 700 -d "$dir"
+          printf '%s\n' "$KEY" > "$dir/deploy_key"
+          chmod 600 "$dir/deploy_key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$dir/known_hosts"
+          # The key may only run deploy/update.sh on the server, which pulls main, rebuilds,
+          # restarts and checks the app answers. Its exit status fails this step if anything breaks.
+          ssh -T -i "$dir/deploy_key" -p "$PORT" \
+            -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/known_hosts" \
+            -o ServerAliveInterval=30 -o ConnectTimeout=20 \
+            "dm-me-deploy@$HOST"
+
+      - name: Remove the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/ssh/deploy_key"
