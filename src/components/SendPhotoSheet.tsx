@@ -43,7 +43,7 @@ export function SendPhotoSheet({ image, persona, defaultMode, onCancel, onSend }
           <button type="button" className="round-btn" onClick={onCancel} aria-label="Discard photo">
             <IconClose size={22} />
           </button>
-          <a className="round-btn" href={image.url} download="dm-me-photo.jpg" aria-label="Save photo">
+          <a className="round-btn" href={image.url} download="photo.jpg" aria-label="Save photo">
             <IconDownload size={22} />
           </a>
         </div>

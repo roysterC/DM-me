@@ -313,7 +313,7 @@ export function ChatPage() {
             label={`View ${persona.name}’s story`}
           />
           <h1>{persona.name}</h1>
-          <p>{persona.handle} · DM-me</p>
+          <p>{persona.handle}</p>
           <button type="button" className="soft-btn" onClick={() => setInfo(true)}>
             View profile
           </button>

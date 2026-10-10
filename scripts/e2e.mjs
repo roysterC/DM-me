@@ -34,7 +34,7 @@ const step = (label) => console.log(`- ${label}`);
 
 step('open the chat (no sign-up)');
 await page.goto(base);
-await page.getByText('Hey, I’m Alisa').waitFor();
+await page.getByRole('heading', { name: 'Alisa' }).waitFor();
 await shot('02-chat-empty');
 
 step('text burst gets one reply');
@@ -144,7 +144,7 @@ await page.getByText('You replied to their story').waitFor({ state: 'detached' }
 
 step('light mode');
 await page.emulateMedia({ colorScheme: 'light' });
-await page.getByText('Hey, I’m Alisa').waitFor();
+await page.getByRole('heading', { name: 'Alisa' }).waitFor();
 await shot('17-light');
 
 await browser.close();

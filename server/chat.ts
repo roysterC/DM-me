@@ -1,6 +1,6 @@
 import type { MessageDTO, StoryRefDTO } from '../shared/types';
 import { buildConversation } from './ai/context';
-import { GREETING, systemPrompt } from './ai/persona';
+import { systemPrompt } from './ai/persona';
 import type { Responder } from './ai/responder';
 import type { DB, MessageRow, StoryRow } from './db';
 import { nowIso } from './db';
@@ -14,17 +14,11 @@ export function conversationFor(db: DB, visitorId: number): number {
     | { id: number }
     | undefined;
   if (existing) return existing.id;
-  const now = nowIso();
-  return db.transaction(() => {
-    const { lastInsertRowid } = db
-      .prepare('INSERT INTO conversations (visitor_id, created_at) VALUES (?, ?)')
-      .run(visitorId, now);
-    const id = Number(lastInsertRowid);
-    db.prepare(
-      "INSERT INTO messages (conversation_id, sender, kind, text, created_at) VALUES (?, 'ai', 'text', ?, ?)",
-    ).run(id, GREETING, now);
-    return id;
-  })();
+  // The chat starts empty: Alisa waits for the visitor to text first.
+  const { lastInsertRowid } = db
+    .prepare('INSERT INTO conversations (visitor_id, created_at) VALUES (?, ?)')
+    .run(visitorId, nowIso());
+  return Number(lastInsertRowid);
 }
 
 export function listMessages(db: DB, conversationId: number, limit = 500): MessageRow[] {
