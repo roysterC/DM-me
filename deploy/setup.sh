@@ -67,6 +67,15 @@ if [[ ! -f $ENV_FILE ]]; then
 fi
 
 DOMAIN=$(env_get DOMAIN)
+DOMAIN=${DOMAIN,,}
+# A pasted link (https://name/) works too, but only the name is used: in Caddy a path after
+# the name limits the site to that one page, so the app's scripts and API would come back empty.
+domain_name=${DOMAIN#*://}
+domain_name=${domain_name%%/*}
+if [[ -n $domain_name && $domain_name != "$DOMAIN" ]]; then
+  warn "DOMAIN should be just the name. Using $domain_name instead of $DOMAIN (you can tidy this in $ENV_FILE)."
+  DOMAIN=$domain_name
+fi
 if [[ -z $DOMAIN || $DOMAIN == chat.example.com ]]; then
   ip=$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)
   if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -76,6 +85,8 @@ if [[ -z $DOMAIN || $DOMAIN == chat.example.com ]]; then
   fi
   die "Set DOMAIN in $ENV_FILE. No domain? Use dm-me-<your server's IP with dashes>.nip.io, e.g. dm-me-203-0-113-10.nip.io"
 fi
+[[ $DOMAIN =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] ||
+  die "DOMAIN in $ENV_FILE must be a name like dm-me-203-0-113-10.nip.io or chat.example.com (no https://, slashes, spaces or port)."
 [[ -n $(env_get SECRET) ]] || die "SECRET is empty in $ENV_FILE. Delete the file and run setup again to regenerate it."
 [[ -n $(env_get ANTHROPIC_API_KEY) ]] || warn "ANTHROPIC_API_KEY is empty: the site works but Nova won't reply."
 [[ -n $(env_get ADMIN_PASSWORD) ]] || warn "ADMIN_PASSWORD is empty: the /admin page will be off."

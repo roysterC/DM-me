@@ -128,6 +128,7 @@ Litestream keeps short-term history and compacts it over time, so recent points 
   ```
 
 - **"Failed to query local AF_VSOCK CID".** A harmless warning systemd prints on many virtual servers. Ignore it.
+- **The page is blank (white screen).** Check `DOMAIN` in `/etc/dm-me/dm-me.env` is only the name, like `dm-me-203-0-113-10.nip.io`, without `https://` or a `/` at the end, then run setup again. (Setup now cleans this up itself.)
 - **Setup says another site already uses your `DOMAIN`.** Two sites can't share a name. Set `DOMAIN` in `/etc/dm-me/dm-me.env` to the name setup suggests (for nip.io, `dm-me-<your IP with dashes>.nip.io`) and run setup again.
 - **Port 3000 is already in use** (another site's app, say). Setup detects this, uses the next free port and saves it as `PORT` in `/etc/dm-me/dm-me.env`. If you set `PORT` yourself, it must be free.
 - **Nova doesn't reply.** Check `ANTHROPIC_API_KEY` in `/etc/dm-me/dm-me.env`, restart, and look at `journalctl -u dm-me -n 50`.
