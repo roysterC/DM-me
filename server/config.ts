@@ -6,6 +6,8 @@ if (fs.existsSync('.env')) process.loadEnvFile('.env');
 
 export interface Config {
   port: number;
+  /** Interface to listen on. Use 127.0.0.1 behind a reverse proxy such as Caddy. */
+  host: string;
   /** SQLite database, plus photos when no bucket is configured. */
   dataDir: string;
   assetsDir: string;
@@ -53,6 +55,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
   const dataDir = overrides.dataDir ?? path.resolve(env.DATA_DIR ?? 'data');
   return {
     port: Number(env.PORT ?? 3000),
+    host: env.HOST ?? '0.0.0.0',
     dataDir,
     assetsDir: path.resolve(env.ASSETS_DIR ?? 'server/assets'),
     clientDir: path.resolve(env.CLIENT_DIR ?? 'dist/client'),

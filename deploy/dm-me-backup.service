@@ -1,0 +1,23 @@
+# Installed by deploy/setup.sh. Streams every database change to the bucket with Litestream.
+[Unit]
+Description=DM-me database backup (Litestream)
+After=dm-me.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@APP_USER@
+Group=@APP_USER@
+EnvironmentFile=/etc/dm-me/dm-me.env
+ExecStart=@LITESTREAM@ replicate -config /etc/dm-me/litestream.yml
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=@DATA_DIR@
+
+[Install]
+WantedBy=multi-user.target

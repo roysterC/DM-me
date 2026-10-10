@@ -62,6 +62,7 @@ Backblaze B2, AWS S3, Supabase Storage (its S3 endpoint) and MinIO work the same
 | `ADMIN_PASSWORD` | none | Unlocks `/admin`. Without it the admin page is off. |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | none | Photo storage bucket (above). `S3_PATH_STYLE=false` for providers that need `bucket.endpoint` URLs. |
 | `PORT` | `3000` | Port for `npm start`. |
+| `HOST` | `0.0.0.0` | Interface to listen on. `127.0.0.1` behind a reverse proxy. |
 | `DATA_DIR` | `./data` | SQLite database, and photos when no bucket is set. |
 | `DAILY_REPLY_LIMIT` | `200` | Nova replies per visitor per day, to cap API spend on a public site. |
 | `AUTO_STORIES` | on | Re-post four sample stories whenever none are live. `off` to disable. |
@@ -71,6 +72,10 @@ Backblaze B2, AWS S3, Supabase Storage (its S3 endpoint) and MinIO work the same
 | `DM_ME_FAKE_AI` | off | `1` replaces Claude with canned replies, for tests and demos. |
 
 ## Deploy
+
+**On a VPS (recommended):** `deploy/setup.sh` installs everything on Debian or Ubuntu: the app as a service, HTTPS through Caddy, and continuous database backups to your bucket with Litestream. Follow [deploy/README.md](deploy/README.md).
+
+**Anywhere else that runs Node 22:**
 
 ```bash
 npm run build     # builds the web app into dist/client and the server into dist/server
@@ -84,11 +89,11 @@ docker build -t dm-me .
 docker run -p 3000:3000 -v dm-me-data:/data --env-file .env dm-me
 ```
 
-Hosting notes:
+Wherever it runs:
 
-- Put it behind **HTTPS** (for example Caddy or nginx with Let's Encrypt). Browsers only allow the camera on HTTPS, and cookies are marked secure when the request arrives over HTTPS, including behind a proxy that sets `X-Forwarded-Proto`.
-- Run **one server process**. Rate limits and the one-reply-at-a-time lock are kept in memory.
-- The server holds at most about 32 MB of recently used photos in memory, so it suits a small VPS.
+- Put it behind **HTTPS**. Browsers only allow the camera on HTTPS, and cookies are marked secure when the request arrives over HTTPS, including behind a proxy that sets `X-Forwarded-Proto`. Set `HOST=127.0.0.1` so only the proxy can reach the app.
+- Run **one server process**. Rate limits and the one-reply-at-a-time lock are kept in memory, and the database is a local SQLite file, so serverless hosts (Vercel, Cloudflare Workers) need changes first.
+- **Back up the database** (`DATA_DIR/dm-me.sqlite`). The VPS setup does this for you.
 
 ## Checks
 

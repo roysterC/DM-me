@@ -1,0 +1,30 @@
+# Installed by deploy/setup.sh. Edit the template in the repo, not the copy in /etc/systemd/system.
+[Unit]
+Description=DM-me web app
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@APP_USER@
+Group=@APP_USER@
+WorkingDirectory=@APP_DIR@
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=@PORT@
+Environment=DATA_DIR=@DATA_DIR@
+EnvironmentFile=/etc/dm-me/dm-me.env
+ExecStart=@NODE@ dist/server/index.js
+Restart=on-failure
+RestartSec=3
+
+# The app can only write to its data directory.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=@DATA_DIR@
+
+[Install]
+WantedBy=multi-user.target

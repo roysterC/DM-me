@@ -1,0 +1,11 @@
+# Installed by deploy/setup.sh. ${...} values come from /etc/dm-me/dm-me.env.
+dbs:
+  - path: @DATA_DIR@/dm-me.sqlite
+    replica:
+      type: s3
+      bucket: ${S3_BUCKET}
+      path: backups/dm-me
+      endpoint: ${S3_ENDPOINT}
+      region: ${S3_REGION}
+      access-key-id: ${S3_ACCESS_KEY_ID}
+      secret-access-key: ${S3_SECRET_ACCESS_KEY}
