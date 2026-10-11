@@ -10,6 +10,7 @@ import { Lightbox, PhotoViewer } from '../components/PhotoViewer';
 import { SendPhotoSheet } from '../components/SendPhotoSheet';
 import { StoryViewer } from '../components/StoryViewer';
 import { prepareImage, type PreparedImage } from '../lib/image';
+import { preloadImage } from '../lib/preload';
 import { buildThread, type UiMessage } from '../lib/thread';
 import { seenLabel } from '../lib/time';
 import { useScrollGradient } from '../lib/useScrollGradient';
@@ -342,6 +343,25 @@ export function ChatPage() {
   };
 
   // ---- Stories --------------------------------------------------------------
+
+  // Fetch story photos as soon as the list arrives so they're ready by the time someone taps
+  // the ring, instead of loading onto a black screen. One at a time, the first unseen story
+  // first, so on a slow connection the one they'll see first isn't sharing the bandwidth.
+  useEffect(() => {
+    let cancelled = false;
+    const urls = [...stories.filter((s) => !s.seen), ...stories.filter((s) => s.seen)]
+      .map((s) => (s.kind === 'photo' ? s.mediaUrl : null))
+      .filter((u): u is string => !!u);
+    (async () => {
+      for (const url of urls) {
+        if (cancelled) return;
+        await preloadImage(url);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [stories.map((s) => s.mediaUrl).join()]);
 
   const ring: RingState = stories.length === 0 ? 'none' : stories.every((s) => s.seen) ? 'seen' : 'unseen';
   const openStories = () => {

@@ -33,9 +33,12 @@ const shot = async (name) => {
 };
 const step = (label) => console.log(`- ${label}`);
 
-step('open the chat (no sign-up)');
+step('open the chat (no sign-up); story photos start downloading straight away');
+const isStoryPhoto = (r) => r.url().includes('/api/media/f') && decodeURIComponent(r.url()).includes('asset:coffee.jpg');
+const storyPreloaded = page.waitForRequest(isStoryPhoto, { timeout: 10_000 });
 await page.goto(base);
 await page.getByRole('heading', { name: 'Alisa' }).waitFor();
+await storyPreloaded;
 await shot('02-chat-empty');
 
 step('text burst gets one reply');
@@ -194,6 +197,23 @@ const shotPhone = async (name) => {
   await tp.waitForTimeout(250);
   await tp.screenshot({ path: path.join(out, `${name}.png`) });
 };
+
+step('phone: a slow story photo shows a spinner, and its timer waits for it');
+await tp.route('**/api/media/f**', async (route) => {
+  await new Promise((r) => setTimeout(r, 2500));
+  await route.continue();
+});
+await tp.goto(base);
+await tp.getByRole('button', { name: 'View Alisa’s story' }).first().click();
+const storyLoading = tp.getByRole('status', { name: 'Loading story' });
+await storyLoading.waitFor({ timeout: 2000 });
+const timerState = () => tp.locator('.timer-run').evaluate((el) => getComputedStyle(el).animationPlayState);
+if ((await timerState()) !== 'paused') throw new Error('The story timer should wait while the photo loads');
+await shotPhone('17b-phone-story-loading');
+await storyLoading.waitFor({ state: 'detached', timeout: 10_000 });
+if ((await timerState()) !== 'running') throw new Error('The story timer should start once the photo shows');
+await tp.getByRole('button', { name: 'Close story' }).click();
+await tp.unroute('**/api/media/f**');
 
 step('phone: a long chat scrolls under the translucent bars, bubbles shade purple to blue');
 await tp.goto(base);
