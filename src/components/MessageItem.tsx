@@ -1,8 +1,9 @@
 import { useRef } from 'react';
-import type { PersonaDTO } from '../../shared/types';
+import type { PersonaDTO, ReplyRefDTO } from '../../shared/types';
 import { bubbleRadius, type UiMessage } from '../lib/thread';
+import { clockTime } from '../lib/time';
 import { Avatar } from './Avatar';
-import { IconHeart, IconOnce, IconOpened, IconReplay } from './Icons';
+import { IconHeart, IconOnce, IconOpened, IconReplay, IconReply } from './Icons';
 
 interface Props {
   message: UiMessage;
@@ -14,6 +15,9 @@ interface Props {
   onOpenEphemeral: (m: UiMessage) => void;
   onOpenKept: (m: UiMessage) => void;
   onRetry: (m: UiMessage) => void;
+  onReply: (m: UiMessage) => void;
+  /** Scrolls to the message a reply quotes. */
+  onJumpTo: (id: number) => void;
 }
 
 export function MessageItem({ message: m, persona, joinPrev, joinNext, showAvatar, ...on }: Props) {
@@ -35,14 +39,29 @@ export function MessageItem({ message: m, persona, joinPrev, joinNext, showAvata
 
   const content = renderContent(m, radius, on);
   const heart = mine ? m.heartByAi : m.heartByUser;
+  const replyButton = m.id > 0 && !m.pending && (
+    <button type="button" className="msg-reply-btn" onClick={() => on.onReply(m)} aria-label="Reply">
+      <IconReply size={18} />
+    </button>
+  );
 
   return (
-    <div className={`msg ${mine ? 'msg-mine' : 'msg-theirs'}`} style={{ marginTop: joinPrev ? 2 : 10 }}>
+    <div
+      id={`msg-${m.id}`}
+      data-msg-id={m.id}
+      className={`msg ${mine ? 'msg-mine' : 'msg-theirs'}`}
+      style={{ marginTop: joinPrev && !m.replyTo ? 2 : 10 }}
+    >
+      <span className="msg-swipe-icon" aria-hidden="true">
+        <IconReply size={18} />
+      </span>
       {!mine && (
         <div className="msg-avatar">{showAvatar && <Avatar persona={persona} size={28} />}</div>
       )}
+      {mine && replyButton}
       <div className="msg-col" onClick={tapToHeart}>
         {m.kind === 'story_reply' && m.story && <StoryQuote story={m.story} />}
+        {m.replyTo && <ReplyQuote quoted={m.replyTo} mine={mine} name={persona.name} onJump={on.onJumpTo} />}
         {content}
         {heart && (
           <button
@@ -61,6 +80,40 @@ export function MessageItem({ message: m, persona, joinPrev, joinNext, showAvata
           </button>
         )}
       </div>
+      {!mine && replyButton}
+      {/* Slides into view when the chat is swiped left. */}
+      <time className="msg-time" dateTime={m.createdAt} aria-hidden="true">
+        {clockTime(m.createdAt)}
+      </time>
+    </div>
+  );
+}
+
+/** "You replied to Alisa" and a faded copy of what was quoted; tap it to jump there. */
+function ReplyQuote(props: { quoted: ReplyRefDTO; mine: boolean; name: string; onJump: (id: number) => void }) {
+  const { quoted, mine, name, onJump } = props;
+  const label = mine
+    ? quoted.sender === 'user'
+      ? 'You replied to yourself'
+      : `You replied to ${name}`
+    : quoted.sender === 'user'
+      ? `${name} replied to you`
+      : `${name} replied`;
+  const preview = quoted.photo ? 'Photo' : (quoted.text ?? '');
+  return (
+    <div className="reply-quote">
+      <span className="reply-quote-label">{label}</span>
+      <button
+        type="button"
+        className="reply-quote-text"
+        onClick={(e) => {
+          e.stopPropagation();
+          onJump(quoted.id);
+        }}
+        aria-label={`${label}: ${preview}. Show the original message`}
+      >
+        <span>{preview}</span>
+      </button>
     </div>
   );
 }
@@ -71,7 +124,7 @@ function renderContent(m: UiMessage, radius: string, on: Pick<Props, 'onOpenEphe
 
   if (m.kind !== 'photo' || !m.photo) {
     return (
-      <div className={`bubble ${mine ? 'bubble-sent' : 'bubble-recv'}`} style={style}>
+      <div className={`bubble ${mine ? 'bubble-sent sent-fill' : 'bubble-recv'}`} style={style}>
         {m.text}
       </div>
     );
@@ -100,7 +153,7 @@ function renderContent(m: UiMessage, radius: string, on: Pick<Props, 'onOpenEphe
     const opened = p.viewCount > 0;
     const status = m.pending === 'sending' ? 'Sending…' : m.pending === 'failed' ? 'Not sent' : opened ? 'Opened' : 'Delivered';
     return (
-      <div className={`eph ${opened ? 'eph-spent' : 'eph-sent'}`} style={style}>
+      <div className={`eph ${opened ? 'eph-spent' : 'eph-sent sent-fill'}`} style={style}>
         <span className="eph-icon">
           <ModeIcon size={18} />
         </span>

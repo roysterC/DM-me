@@ -151,6 +151,99 @@ await page.emulateMedia({ colorScheme: 'light' });
 await page.getByRole('heading', { name: 'Alisa' }).waitFor();
 await shot('17-light');
 
+step('reply with the mouse: hover a message, click Reply');
+await page.emulateMedia({ colorScheme: 'dark' });
+await input.fill('first thing');
+await input.press('Enter');
+await page.getByText('You said: first thing').waitFor({ timeout: 10_000 });
+const hers = page.locator('.msg-theirs', { hasText: 'You said: first thing' });
+await hers.hover();
+await hers.getByRole('button', { name: 'Reply' }).click();
+await page.getByText('Replying to Alisa').waitFor();
+await input.fill('replying with the mouse');
+await input.press('Enter');
+await page.getByText('You replied to Alisa').waitFor();
+if (await page.getByText('Replying to Alisa').count()) throw new Error('Reply bar should close after sending');
+
+// ---- A phone: touch gestures, the floating bars and the scrolling gradient ----
+const phone = await browser.newContext({
+  viewport: { width: 390, height: 844 },
+  deviceScaleFactor: 2,
+  colorScheme: 'dark',
+  hasTouch: true,
+  isMobile: true,
+  locale: 'en-GB',
+});
+const tp = await phone.newPage();
+tp.on('pageerror', (e) => errors.push(String(e)));
+tp.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+const cdp = await phone.newCDPSession(tp);
+const touch = (type, x, y) =>
+  cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+/** Drags a finger from (x, y) by dx; with `hold`, stops before lifting it. */
+const drag = async (x, y, dx, { hold = false } = {}) => {
+  await touch('touchStart', x, y);
+  for (let i = 1; i <= 12; i++) {
+    await touch('touchMove', x + (dx * i) / 12, y);
+    await tp.waitForTimeout(16);
+  }
+  if (!hold) await touch('touchEnd', 0, 0);
+};
+const tInput = tp.getByLabel('Message Alisa');
+const shotPhone = async (name) => {
+  await tp.waitForTimeout(250);
+  await tp.screenshot({ path: path.join(out, `${name}.png`) });
+};
+
+step('phone: a long chat scrolls under the translucent bars, bubbles shade purple to blue');
+await tp.goto(base);
+await tp.getByRole('heading', { name: 'Alisa' }).waitFor();
+for (const text of ['hey', 'so i had the weirdest day', 'like genuinely', 'my employer missed my exam signup twice', 'i emailed them four times', 'now im months behind', 'anyway', 'how r u']) {
+  await tInput.fill(text);
+  await tInput.press('Enter');
+}
+await tp.getByText('You said: hey so i had').waitFor({ timeout: 15_000 });
+const blur = await tp.locator('.chat-header').evaluate((el) => getComputedStyle(el).backdropFilter || getComputedStyle(el).webkitBackdropFilter);
+if (!/blur/.test(blur)) throw new Error(`Header isn't blurred: ${blur}`);
+const fillY = (text) => tp.getByText(text, { exact: true }).evaluate((el) => getComputedStyle(el).backgroundPositionY);
+const topY = await fillY('hey');
+const bottomY = await fillY('how r u');
+if (topY === bottomY) throw new Error('Bubbles at different heights should show different parts of the gradient');
+await tp.locator('.thread').evaluate((el) => el.scrollBy(0, -200));
+await tp.waitForTimeout(200);
+if ((await fillY('how r u')) === bottomY) throw new Error('The gradient should move with scrolling');
+await tp.locator('.thread').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+await tp.waitForTimeout(300);
+await shotPhone('18-phone-gradient');
+
+step('phone: swipe the chat left to see the times');
+const row = await tp.getByText('now im months behind', { exact: true }).boundingBox();
+await drag(300, row.y + row.height / 2, -120, { hold: true });
+const time = tp.locator('.msg-mine', { hasText: 'now im months behind' }).locator('.msg-time');
+const shown = await time.evaluate((el) => ({ opacity: Number(getComputedStyle(el).opacity), right: el.getBoundingClientRect().right }));
+if (shown.opacity < 0.9 || shown.right > 390) throw new Error(`Time should be fully visible mid-swipe: ${JSON.stringify(shown)}`);
+await shotPhone('19-phone-times');
+await touch('touchEnd', 0, 0);
+await tp.waitForTimeout(400);
+if (Number(await time.evaluate((el) => getComputedStyle(el).opacity)) > 0.05) throw new Error('Times should hide on release');
+
+step('phone: swipe one of Alisa’s messages right to reply');
+const herBubble = await tp.locator('.msg-theirs .bubble').last().boundingBox();
+await drag(herBubble.x + 30, herBubble.y + herBubble.height / 2, 110);
+await tp.getByText('Replying to Alisa').waitFor();
+await shotPhone('20-phone-reply-bar');
+await tInput.fill('wait which part');
+await tInput.press('Enter');
+await tp.getByText('You replied to Alisa').waitFor();
+await tp.waitForTimeout(400);
+await shotPhone('21-phone-quoted');
+
+step('phone: tap a quote to jump to the original');
+await tp.locator('.thread').evaluate((el) => el.scrollTo(0, 0));
+await tp.locator('.reply-quote-text').last().evaluate((el) => el.click());
+await tp.waitForFunction(() => document.querySelector('.msg.flash'));
+
+await phone.close();
 await browser.close();
 if (errors.length) {
   console.error('Browser errors:\n' + errors.join('\n'));

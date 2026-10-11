@@ -98,3 +98,10 @@ export const IconBack = (p: P) => (
     <path d="M15 5l-7 7 7 7" />
   </Stroke>
 );
+
+export const IconReply = (p: P) => (
+  <Stroke {...p}>
+    <path d="M10 8 5 12.5l5 4.5" />
+    <path d="M5.5 12.5H14a5 5 0 0 1 5 5v1" />
+  </Stroke>
+);

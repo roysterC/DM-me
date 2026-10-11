@@ -7,6 +7,10 @@ type Turn = Anthropic.MessageParam;
 type ImageMime = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
 
 const MAX_IMAGES = 12;
+const QUOTE_CHARS = 140;
+
+/** How Alisa refers to one of the visitor's messages, e.g. to quote-reply to it. */
+export const messageRef = (id: number) => `m${id}`;
 
 export function formatStamp(iso: string, timeZone: string): string {
   const opts: Intl.DateTimeFormatOptions = {
@@ -35,8 +39,11 @@ export async function buildConversation(
   media: Pick<MediaStore, 'read'>,
   timeZone: string,
   refByKey: Map<string, string>,
+  lookup?: (id: number) => MessageRow | undefined,
 ): Promise<{ messages: Turn[]; opening: number[] }> {
   const opening: number[] = [];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const find = (id: number) => byId.get(id) ?? lookup?.(id);
 
   // Decide which user photos are shown as images, newest first, within the cap.
   const images = new Map<number, Uint8Array>();
@@ -62,7 +69,7 @@ export async function buildConversation(
 
     if (sender === 'user') {
       const blocks: Block[] = [];
-      for (const r of group) blocks.push(...userBlocks(r, images.get(r.id), timeZone));
+      for (const r of group) blocks.push(...userBlocks(r, images.get(r.id), timeZone, find));
       turns.push({ role: 'user', content: blocks });
     } else {
       turns.push({ role: 'assistant', content: assistantJson(group, lastUserRow(rows, start), refByKey) });
@@ -73,8 +80,25 @@ export async function buildConversation(
   return { messages: turns, opening };
 }
 
-function userBlocks(r: MessageRow, image: Uint8Array | undefined, timeZone: string): Block[] {
-  const stamp = `[${formatStamp(r.created_at, timeZone)}]`;
+/** "(replying to your message: ...)" when the visitor quote-replied to something. */
+function quoteNote(r: MessageRow, find: (id: number) => MessageRow | undefined): string {
+  if (r.reply_to_id == null) return '';
+  const q = find(r.reply_to_id);
+  const whose = q?.sender === 'user' ? 'their own' : 'your';
+  if (!q) return '(replying to an earlier message) ';
+  if (q.kind === 'photo') return `(replying to ${whose} photo) `;
+  const text = (q.text ?? '').replace(/\s+/g, ' ').trim();
+  const clipped = text.length > QUOTE_CHARS ? `${text.slice(0, QUOTE_CHARS)}…` : text;
+  return `(replying to ${whose} message: "${clipped}") `;
+}
+
+function userBlocks(
+  r: MessageRow,
+  image: Uint8Array | undefined,
+  timeZone: string,
+  find: (id: number) => MessageRow | undefined,
+): Block[] {
+  const stamp = `[${messageRef(r.id)} · ${formatStamp(r.created_at, timeZone)}] ${quoteNote(r, find)}`.trimEnd();
   if (r.kind === 'text') return [{ type: 'text', text: `${stamp} ${r.text ?? ''}` }];
 
   if (r.kind === 'story_reply') {
@@ -115,6 +139,7 @@ function assistantJson(group: MessageRow[], prevUser: MessageRow | null, refByKe
   const messages: string[] = [];
   let sendPhoto = 'none';
   let mode = 'keep';
+  const quoted = group.find((r) => r.reply_to_id != null)?.reply_to_id;
   for (const r of group) {
     if (r.kind === 'photo') {
       sendPhoto = (r.media_key && refByKey.get(r.media_key)) || 'none';
@@ -125,6 +150,7 @@ function assistantJson(group: MessageRow[], prevUser: MessageRow | null, refByKe
   }
   return JSON.stringify({
     messages,
+    reply_to_message: quoted != null ? messageRef(quoted) : 'none',
     heart_latest_user_message: prevUser?.heart_by_ai === 1,
     send_photo: sendPhoto,
     send_photo_mode: mode,

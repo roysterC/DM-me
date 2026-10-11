@@ -35,6 +35,15 @@ export interface StoryRefDTO {
   available: boolean;
 }
 
+/** A short preview of the message a reply quotes. */
+export interface ReplyRefDTO {
+  id: number;
+  sender: Sender;
+  /** The quoted text; null for a photo. */
+  text: string | null;
+  photo: boolean;
+}
+
 export interface MessageDTO {
   id: number;
   sender: Sender;
@@ -46,6 +55,8 @@ export interface MessageDTO {
   heartByAi: boolean;
   photo: PhotoDTO | null;
   story: StoryRefDTO | null;
+  /** The message this one replies to, if any. */
+  replyTo: ReplyRefDTO | null;
 }
 
 export interface ChatDTO {

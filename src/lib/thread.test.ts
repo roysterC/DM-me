@@ -14,6 +14,7 @@ const msg = (id: number, sender: 'user' | 'ai', at: string, extra: Partial<Messa
   heartByAi: false,
   photo: null,
   story: null,
+  replyTo: null,
   ...extra,
 });
 

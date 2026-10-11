@@ -30,6 +30,8 @@ export interface MessageRow {
   heart_by_ai: number;
   created_at: string;
   read_at: string | null;
+  /** The message this one quotes, Instagram-style ("You replied to Alisa"). */
+  reply_to_id: number | null;
 }
 
 export interface StoryRow {
@@ -140,6 +142,9 @@ const MIGRATIONS: string[] = [
   // Chats are ordered by when each message appears (Alisa's bubbles can be due later than they're written).
   `
   CREATE INDEX messages_by_time ON messages (conversation_id, created_at, id);
+  `,
+  `
+  ALTER TABLE messages ADD COLUMN reply_to_id INTEGER REFERENCES messages(id) ON DELETE SET NULL;
   `,
 ];
 

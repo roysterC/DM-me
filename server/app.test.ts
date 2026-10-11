@@ -162,6 +162,62 @@ describe('chat', () => {
   });
 });
 
+describe('quote-replies', () => {
+  it('lets the visitor reply to a message, shows the quote, and tells Alisa what was quoted', async () => {
+    const t = setup();
+    const me = t.browser();
+    await me('POST', '/api/chat/messages', { text: 'how was the exam' });
+    const chat = await json<ChatDTO>(await me('POST', '/api/chat/reply', {}));
+    const hers = chat.messages.find((m) => m.sender === 'ai')!;
+
+    const sent = (await json<{ message: MessageDTO }>(await me('POST', '/api/chat/messages', { text: 'wait what', replyTo: hers.id }))).message;
+    expect(sent.replyTo).toEqual({ id: hers.id, sender: 'ai', text: hers.text, photo: false });
+    const photo = t.photoForm('keep');
+    photo.set('replyTo', String(sent.id));
+    const pic = (await json<{ message: MessageDTO }>(await me('POST', '/api/chat/photos', photo))).message;
+    expect(pic.replyTo).toMatchObject({ id: sent.id, sender: 'user', text: 'wait what' });
+
+    await me('POST', '/api/chat/reply', {});
+    const lastTurn = JSON.stringify(t.fake.calls.at(-1)!.messages.at(-1));
+    expect(lastTurn).toContain(`(replying to your message: \\"${hers.text}\\") wait what`);
+    expect(lastTurn).toContain('(replying to their own message: \\"wait what\\")');
+    // The quote survives a reload.
+    const reloaded = await json<ChatDTO>(await me('GET', '/api/chat'));
+    expect(reloaded.messages.find((m) => m.id === sent.id)?.replyTo?.id).toBe(hers.id);
+  });
+
+  it('ignores quotes of messages from someone else’s chat, or not showing yet', async () => {
+    const t = setup({ typing: 7 });
+    const other = t.browser();
+    const mine = (await json<{ message: MessageDTO }>(await other('POST', '/api/chat/messages', { text: 'private' }))).message;
+    const me = t.browser();
+    const sent = (await json<{ message: MessageDTO }>(await me('POST', '/api/chat/messages', { text: 'hi', replyTo: mine.id }))).message;
+    expect(sent.replyTo).toBeNull();
+
+    // Alisa's bubble is still being "typed": it can't be quoted until it shows.
+    await me('POST', '/api/chat/reply', {});
+    const due = t.db.prepare("SELECT id FROM messages WHERE sender = 'ai'").get() as { id: number };
+    const early = (await json<{ message: MessageDTO }>(await me('POST', '/api/chat/messages', { text: 'hm', replyTo: due.id }))).message;
+    expect(early.replyTo).toBeNull();
+  });
+
+  it('lets Alisa quote one of the visitor’s messages, and only theirs', async () => {
+    const t = setup();
+    const me = t.browser();
+    const first = (await json<{ message: MessageDTO }>(await me('POST', '/api/chat/messages', { text: 'did u see the game' }))).message;
+    await me('POST', '/api/chat/messages', { text: 'also quote me' });
+    const chat = await json<ChatDTO>(await me('POST', '/api/chat/reply', {}));
+    const hers = chat.messages.filter((m) => m.sender === 'ai');
+    expect(hers[0].replyTo).toMatchObject({ id: first.id, sender: 'user', text: 'did u see the game' });
+    expect(hers.slice(1).every((m) => m.replyTo === null)).toBe(true);
+    // Her past quotes come back to her in her own format.
+    await me('POST', '/api/chat/messages', { text: 'lol' });
+    await me('POST', '/api/chat/reply', {});
+    const assistantTurn = t.fake.calls.at(-1)!.messages.find((m) => m.role === 'assistant')!;
+    expect(JSON.parse(assistantTurn.content as string).reply_to_message).toBe(`m${first.id}`);
+  });
+});
+
 describe('reply timing', () => {
   it('holds Alisa’s bubbles back until she’d have typed them, in order', async () => {
     const t = setup({ typing: 7 });
@@ -398,22 +454,31 @@ describe('buildConversation', () => {
       story_snapshot: null,
       heart_by_user: 0,
       read_at: null,
+      reply_to_id: null,
     };
     const rows: MessageRow[] = [
       { ...base, id: 1, sender: 'user', kind: 'text', text: 'got the job', heart_by_ai: 1, created_at: '2026-10-09T21:02:00.000Z' },
       { ...base, id: 2, sender: 'ai', kind: 'text', text: 'YES', heart_by_ai: 0, created_at: '2026-10-09T21:02:05.000Z' },
       { ...base, id: 3, sender: 'ai', kind: 'photo', text: null, media_key: 'library/x.jpg', photo_mode: 'once', heart_by_ai: 0, created_at: '2026-10-09T21:02:05.000Z' },
-      { ...base, id: 4, sender: 'user', kind: 'text', text: 'thanks', heart_by_ai: 0, created_at: '2026-10-09T21:03:00.000Z' },
+      { ...base, id: 4, sender: 'user', kind: 'text', text: 'thanks', heart_by_ai: 0, created_at: '2026-10-09T21:03:00.000Z', reply_to_id: 2 },
+      { ...base, id: 5, sender: 'ai', kind: 'text', text: 'ofc', heart_by_ai: 0, created_at: '2026-10-09T21:03:05.000Z', reply_to_id: 4 },
     ];
     const media = { read: async () => null };
     const { messages } = await buildConversation(rows, media, 'UTC', new Map([['library/x.jpg', 'p7']]));
-    expect(messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: '[Fri, Oct 9, 9:02 PM] got the job' }] });
+    expect(messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: '[m1 · Fri, Oct 9, 9:02 PM] got the job' }] });
     expect(JSON.parse(messages[1].content as string)).toEqual({
       messages: ['YES'],
+      reply_to_message: 'none',
       heart_latest_user_message: true,
       send_photo: 'p7',
       send_photo_mode: 'once',
     });
+    // Quote-replies both ways: theirs is spelled out, hers comes back as the reference she gave.
+    expect(messages[2]).toEqual({
+      role: 'user',
+      content: [{ type: 'text', text: '[m4 · Fri, Oct 9, 9:03 PM] (replying to your message: "YES") thanks' }],
+    });
+    expect(JSON.parse(messages[3].content as string)).toMatchObject({ messages: ['ofc'], reply_to_message: 'm4' });
   });
 });
 
