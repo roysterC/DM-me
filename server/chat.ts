@@ -6,6 +6,7 @@ import type { DB, MessageRow, StoryRow } from './db';
 import { nowIso } from './db';
 import { cameraRoll } from './library';
 import type { MediaStore } from './media';
+import { type Bubble, schedule, splitBubbles } from './pacing';
 
 const HISTORY_LIMIT = 80;
 
@@ -21,11 +22,25 @@ export function conversationFor(db: DB, visitorId: number): number {
   return Number(lastInsertRowid);
 }
 
+/**
+ * The conversation in the order messages appear. Alisa's bubbles carry the time
+ * they're due to appear, which can be in the future while she's "typing"; a
+ * message the visitor sends meanwhile sorts before them.
+ */
 export function listMessages(db: DB, conversationId: number, limit = 500): MessageRow[] {
   const rows = db
-    .prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?')
+    .prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at DESC, id DESC LIMIT ?')
     .all(conversationId, limit) as MessageRow[];
   return rows.reverse();
+}
+
+/** Splits rows into those already showing and the times (ms from now) the rest are due. */
+export function splitDue(rows: MessageRow[], now = Date.now()): { shown: MessageRow[]; upcoming: number[] } {
+  const cutoff = new Date(now).toISOString();
+  return {
+    shown: rows.filter((r) => r.created_at <= cutoff),
+    upcoming: rows.filter((r) => r.created_at > cutoff).map((r) => Date.parse(r.created_at) - now),
+  };
 }
 
 export function getMessage(db: DB, conversationId: number, id: number): MessageRow | undefined {
@@ -99,6 +114,8 @@ export class ReplyService {
     private db: DB,
     private media: MediaStore,
     private responder: Responder,
+    /** Typing speed for reply timing; 0 shows every bubble as soon as the reply is ready. */
+    private charsPerSecond = 0,
   ) {}
 
   async replyTo(conversationId: number, timeZone: string): Promise<boolean> {
@@ -119,9 +136,16 @@ export class ReplyService {
   }
 
   private async run(conversationId: number, timeZone: string): Promise<boolean> {
-    const rows = listMessages(this.db, conversationId, HISTORY_LIMIT);
-    const last = rows[rows.length - 1];
-    if (!last || last.sender !== 'user') return false;
+    const startedAt = Date.now();
+    // In the order things were written, not shown: a message the visitor sent while Alisa was
+    // still "typing" comes after her queued bubbles, since she wrote those before reading it.
+    const rows = listMessages(this.db, conversationId, HISTORY_LIMIT).sort((a, b) => a.id - b.id);
+    const lastUser = rows.findLast((r) => r.sender === 'user');
+    const lastAi = rows.findLast((r) => r.sender === 'ai');
+    if (!lastUser) return false;
+    // Reply to anything unread, or retry when the last attempt failed after reading it.
+    const answered = lastAi && rows.indexOf(lastAi) > rows.indexOf(lastUser);
+    if (lastUser.read_at && answered) return false;
 
     this.db
       .prepare("UPDATE messages SET read_at = ? WHERE conversation_id = ? AND sender = 'user' AND read_at IS NULL")
@@ -149,16 +173,27 @@ export class ReplyService {
         const row = keyOf.get(id) as { media_key: string | null } | undefined;
         if (row?.media_key) toDelete.push(row.media_key);
       }
-      if (reply.heartLatest) this.db.prepare('UPDATE messages SET heart_by_ai = 1 WHERE id = ?').run(last.id);
+      if (reply.heartLatest) this.db.prepare('UPDATE messages SET heart_by_ai = 1 WHERE id = ?').run(lastUser.id);
 
-      // Text bubbles first ("Like this:"), then the photo.
-      const now = nowIso();
-      for (const text of reply.messages) insertText.run(conversationId, text, now);
+      // Text bubbles first ("Like this:"), then the photo, each due when it would be typed.
+      const texts = splitBubbles(reply.messages);
       const p = reply.photo ? byRef.get(reply.photo.ref) : undefined;
+      const bubbles: Bubble[] = texts.map((text) => ({ kind: 'text', text }));
+      if (p) bubbles.push({ kind: 'photo' });
+      // Bubbles still due from an earlier reply go first.
+      const pendingUntil = Math.max(0, ...rows.filter((r) => r.sender === 'ai').map((r) => Date.parse(r.created_at)));
+      const times = schedule(bubbles, {
+        charsPerSecond: this.charsPerSecond,
+        startedAt,
+        readyAt: Date.now(),
+        notBefore: pendingUntil > startedAt ? pendingUntil : 0,
+      });
+      const at = (i: number) => new Date(times[i]).toISOString();
+      texts.forEach((text, i) => insertText.run(conversationId, text, at(i)));
       if (reply.photo && p) {
         // A photo set to always go out one way on the admin page overrides Alisa's choice.
         const mode = p.send_mode === 'auto' ? reply.photo.mode : p.send_mode;
-        insertPhoto.run(conversationId, p.media_key, p.media_mime, p.width, p.height, mode, now);
+        insertPhoto.run(conversationId, p.media_key, p.media_mime, p.width, p.height, mode, at(texts.length));
       }
     })();
     await Promise.all(toDelete.map((k) => this.media.remove(k).catch((err) => console.error('Delete failed', k, err))));

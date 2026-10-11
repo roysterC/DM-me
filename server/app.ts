@@ -41,7 +41,7 @@ export function pickStorage(config: Config): Storage {
 
 export function createApp(db: DB, config: Config, responder: Responder | null, storage: Storage = pickStorage(config)) {
   const media = new MediaStore(storage, config.assetsDir, config.secret);
-  const replies = new ReplyService(db, media, responder ?? new FakeResponder());
+  const replies = new ReplyService(db, media, responder ?? new FakeResponder(), config.typingCharsPerSecond);
   const deps: Deps = { db, config, media, replies, responder, aiConnected: responder !== null };
   seedLibrary(db, config.seedSamplePhotos);
   ensureStories(db, config.autoStories);

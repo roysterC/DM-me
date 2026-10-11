@@ -3,7 +3,7 @@ import type { ChatDTO, OpenPhotoDTO, PhotoMode } from '../../shared/types';
 import { PERSONA } from '../ai/persona';
 import { AiUnavailableError } from '../ai/responder';
 import type { Deps } from '../app';
-import { conversationFor, getMessage, listMessages, maxViews, ownedUploads, toMessageDTO } from '../chat';
+import { conversationFor, getMessage, listMessages, maxViews, ownedUploads, splitDue, toMessageDTO } from '../chat';
 import type { MessageRow } from '../db';
 import { nowIso } from '../db';
 import { type AppEnv, clientIp, RateLimiter } from '../identity';
@@ -22,10 +22,11 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
 
   const chatState = async (conversationId: number): Promise<ChatDTO> => {
     const stories = activeStoryMap(db);
-    const rows = listMessages(db, conversationId);
+    const { shown, upcoming } = splitDue(listMessages(db, conversationId));
     return {
       persona: PERSONA,
-      messages: await Promise.all(rows.map((r) => toMessageDTO(r, stories, media))),
+      messages: await Promise.all(shown.map((r) => toMessageDTO(r, stories, media))),
+      upcoming,
       aiConnected,
     };
   };

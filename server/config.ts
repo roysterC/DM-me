@@ -25,6 +25,8 @@ export interface Config {
   photoSeconds: number;
   /** Alisa replies per visitor per day. */
   dailyReplyLimit: number;
+  /** How fast Alisa "types": her bubbles appear after about as long as typing them takes. 0 = instantly. */
+  typingCharsPerSecond: number;
 }
 
 function loadSecret(dataDir: string): string {
@@ -68,6 +70,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     seedSamplePhotos: env.SAMPLE_PHOTOS !== 'off',
     photoSeconds: Number(env.PHOTO_SECONDS ?? 5),
     dailyReplyLimit: Number(env.DAILY_REPLY_LIMIT ?? 200),
+    typingCharsPerSecond: Number(env.TYPING_SPEED ?? 7),
     ...overrides,
   };
 }
