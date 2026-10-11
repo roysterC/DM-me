@@ -50,7 +50,7 @@ export function MessageItem({ message: m, persona, joinPrev, joinNext, showAvata
       id={`msg-${m.id}`}
       data-msg-id={m.id}
       className={`msg ${mine ? 'msg-mine' : 'msg-theirs'}`}
-      style={{ marginTop: joinPrev && !m.replyTo ? 2 : 10 }}
+      style={{ marginTop: joinPrev && !m.replyTo ? 2 : 12 }}
     >
       <span className="msg-swipe-icon" aria-hidden="true">
         <IconReply size={18} />
