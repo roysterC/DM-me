@@ -17,26 +17,35 @@
   --spent-line: #c7c7c7;
   /* The top and bottom bars: see-through, with the chat blurred behind. */
   --bar-bg: rgba(255, 255, 255, 0.72);
+  --header-bg: var(--bar-bg);
   --quote-bg: #f2f2f2;
+  --quote-fg: var(--muted);
+  --quote-bar: #dbdbdb;
+  --camera: #5454f0;
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #000000;
-    --page: #0c0c0c;
-    --fg: #f5f5f5;
-    --muted: #a8a8a8;
-    --field: #262626;
-    --recv: #262626;
-    --line: #262626;
-    --chip-line: #3a3a3a;
+    /* Measured from Instagram's dark-mode chat (iOS): a blue-tinted near-black, not pure black. */
+    --bg: #0c0f14;
+    --page: #05070a;
+    --fg: #f8f9f9;
+    --muted: #a2a9b4;
+    --field: #1c1d1f;
+    --recv: #25282e;
+    --line: #25282e;
+    --chip-line: #3a3e45;
     --link: #4cb5f9;
     --danger: #ff6b6b;
-    --ring-seen: #4a4a4a;
-    --spent-line: #3a3a3a;
-    --bar-bg: rgba(0, 0, 0, 0.6);
-    --quote-bg: #1c1c1c;
+    --ring-seen: #4a4e55;
+    --spent-line: #3a3e45;
+    --bar-bg: rgba(12, 15, 20, 0.78);
+    /* The top bar darkens to black behind the status bar and fades into the chat below. */
+    --header-bg: linear-gradient(180deg, rgba(0, 0, 0, 0.94) 0%, rgba(6, 8, 11, 0.86) 55%, rgba(12, 15, 20, 0.62) 100%);
+    --quote-bg: #181c21;
+    --quote-fg: #939597;
+    --quote-bar: #25282e;
     color-scheme: dark;
   }
 }
@@ -57,7 +66,8 @@ body,
 body {
   background: var(--page);
   color: var(--fg);
-  font-family: 'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* The device's own UI font, like Instagram: SF Pro on iPhone and Mac, Roboto on Android. */
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
@@ -249,9 +259,21 @@ a {
 }
 .chat-header.floating,
 .bottom-bar {
-  background: var(--bar-bg);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
+}
+.chat-header.floating {
+  background: var(--header-bg);
+}
+/* Instagram's dark header buttons: a faint glass circle. */
+@media (prefers-color-scheme: dark) {
+  .chat-header.floating .icon-btn {
+    background: rgba(20, 23, 28, 0.7);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  }
+}
+.bottom-bar {
+  background: var(--bar-bg);
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .chat-header.floating,
@@ -277,14 +299,14 @@ a {
   padding-left: 4px;
 }
 .header-name {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
-  line-height: 20px;
+  line-height: 21px;
 }
 .header-status {
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--muted);
+  font-size: 13px;
+  line-height: 17px;
+  color: var(--fg);
 }
 
 /* ---------- Thread ---------- */
@@ -296,7 +318,7 @@ a {
   overscroll-behavior: contain;
   /* Vertical scrolling is the browser's; sideways drags are the chat's gestures. */
   touch-action: pan-y;
-  padding: calc(var(--top-h, 60px) + 16px) 12px calc(var(--bottom-h, 84px) + 8px);
+  padding: calc(var(--top-h, 60px) + 16px) 8px calc(var(--bottom-h, 84px) + 8px);
   display: flex;
   flex-direction: column;
   scrollbar-width: none;
@@ -415,7 +437,9 @@ a {
   padding-left: 64px;
 }
 .msg-theirs {
-  padding-right: 56px;
+  padding-left: 8px;
+  padding-right: 55px;
+  gap: 12px;
 }
 .msg-avatar {
   width: 28px;
@@ -437,8 +461,8 @@ a {
 }
 
 .bubble {
-  padding: 9px 14px;
-  font-size: 15px;
+  padding: 10px 14px;
+  font-size: 16px;
   line-height: 20px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -567,11 +591,12 @@ a {
   color: var(--muted);
 }
 .reply-quote-text {
+  position: relative;
   max-width: 100%;
-  padding: 8px 14px;
+  padding: 9px 14px;
   border-radius: 18px;
   background: var(--quote-bg);
-  color: var(--muted);
+  color: var(--quote-fg);
   font-size: 14px;
   line-height: 18px;
   text-align: left;
@@ -585,14 +610,27 @@ a {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-/* The thin bar beside a quote, on the outer edge like Instagram's. */
+/* The thin bar beside a quote, a little way off its outer edge like Instagram's. */
+.reply-quote-text::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--quote-bar);
+}
 .msg-mine .reply-quote-text {
-  margin-right: 10px;
-  box-shadow: 10px 0 0 -7px var(--chip-line);
+  margin-right: 15px;
+}
+.msg-mine .reply-quote-text::after {
+  right: -15px;
 }
 .msg-theirs .reply-quote-text {
-  margin-left: 10px;
-  box-shadow: -10px 0 0 -7px var(--chip-line);
+  margin-left: 15px;
+}
+.msg-theirs .reply-quote-text::after {
+  left: -15px;
 }
 
 /* A quoted message pulses when you jump to it. */
@@ -652,7 +690,7 @@ a {
 }
 
 .typing {
-  height: 38px;
+  height: 40px;
   padding: 0 14px;
   border-radius: 22px;
   display: flex;
@@ -760,14 +798,14 @@ a {
 
 .composer {
   flex: none;
-  padding: 8px 12px calc(16px + env(safe-area-inset-bottom));
+  padding: 8px 8px calc(12px + env(safe-area-inset-bottom));
 }
 .composer-pill {
-  min-height: 52px;
-  border-radius: 26px;
+  min-height: 44px;
+  border-radius: 22px;
   display: flex;
   align-items: center;
-  padding: 4px;
+  padding: 0 4px 0 0;
   background: var(--field);
 }
 .composer-pill input {
@@ -777,8 +815,8 @@ a {
   border: 0;
   outline: none;
   background: transparent;
-  padding: 0 8px;
-  font-size: 16px;
+  padding: 0 6px;
+  font-size: 17px;
 }
 .composer-pill input::placeholder {
   color: var(--muted);
@@ -792,14 +830,14 @@ a {
   justify-content: center;
 }
 .camera-btn span {
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #ffffff;
-  background: var(--sent);
+  background: var(--camera);
 }
 .send-text {
   height: 44px;

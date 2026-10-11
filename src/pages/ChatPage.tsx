@@ -393,7 +393,7 @@ export function ChatPage() {
         <div className="header-avatar">
           <Avatar
             persona={persona}
-            size={40}
+            size={34}
             ring={ring}
             active
             onClick={ring === 'none' ? () => setInfo(true) : openStories}
@@ -449,7 +449,7 @@ export function ChatPage() {
         )}
 
         {typing && (
-          <div className="msg msg-theirs" style={{ marginTop: 10 }}>
+          <div className="msg msg-theirs" style={{ marginTop: 12 }}>
             <div className="msg-avatar">
               <Avatar persona={persona} size={28} />
             </div>
