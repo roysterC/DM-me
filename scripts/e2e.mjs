@@ -1,6 +1,7 @@
 // Clicks through the whole app in Chromium and saves screenshots.
 // Start a server with fake replies first:
-//   DATA_DIR=/tmp/dmme-e2e DM_ME_FAKE_AI=1 ADMIN_PASSWORD=letmein PORT=3456 npm start
+//   DATA_DIR=/tmp/dmme-e2e DM_ME_FAKE_AI=1 ADMIN_PASSWORD=letmein TYPING_SPEED=40 PORT=3456 npm start
+// (TYPING_SPEED=40 keeps reply timing on, just faster than the default, so the run stays quick.)
 // then: node scripts/e2e.mjs [baseUrl] [outDir]
 import fs from 'node:fs';
 import path from 'node:path';
@@ -43,6 +44,9 @@ await input.fill('ok be honest');
 await input.press('Enter');
 await input.fill('is it weird to text an AI at 9pm about dinner');
 await page.getByRole('button', { name: 'Send', exact: true }).click();
+// She's "typing" for a while before her bubble shows up.
+await page.getByRole('status', { name: 'Alisa is typing' }).waitFor({ timeout: 5_000 });
+if (await page.getByText('You said: ok be honest is it weird').count()) throw new Error('Reply showed up without typing first');
 await page.getByText('You said: ok be honest is it weird').waitFor({ timeout: 10_000 });
 await page.getByText('Seen').waitFor({ state: 'detached' }).catch(() => {});
 await shot('03-chat-reply');

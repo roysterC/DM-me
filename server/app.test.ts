@@ -11,7 +11,7 @@ import { S3Storage } from './storage';
 
 const JPEG = new Uint8Array(fs.readFileSync(path.resolve('server/assets/skillet.jpg')));
 
-function setup(opts: { connected?: boolean; adminPassword?: string; dailyReplyLimit?: number } = {}) {
+function setup(opts: { connected?: boolean; adminPassword?: string; dailyReplyLimit?: number; typing?: number } = {}) {
   const config = loadConfig({
     dataDir: ':memory:',
     secret: 'test-secret',
@@ -21,6 +21,8 @@ function setup(opts: { connected?: boolean; adminPassword?: string; dailyReplyLi
     autoStories: true,
     seedSamplePhotos: true,
     dailyReplyLimit: opts.dailyReplyLimit ?? 200,
+    // Replies appear instantly unless a test is about their timing.
+    typingCharsPerSecond: opts.typing ?? 0,
   });
   const db = openDb(':memory:');
   const fake = new FakeResponder();
@@ -157,6 +159,32 @@ describe('chat', () => {
     await me('POST', '/api/chat/messages', { text: 'got the job! heart this' });
     const after = await json<ChatDTO>(await me('POST', '/api/chat/reply', {}));
     expect(after.messages.find((m) => m.text === 'got the job! heart this')?.heartByAi).toBe(true);
+  });
+});
+
+describe('reply timing', () => {
+  it('holds Alisa’s bubbles back until she’d have typed them, in order', async () => {
+    const t = setup({ typing: 7 });
+    const me = t.browser();
+    await me('POST', '/api/chat/messages', { text: 'u up?' });
+    const chat = await json<ChatDTO>(await me('POST', '/api/chat/reply', {}));
+    // "You said: u up?" is about 15 characters: roughly 2-4 seconds to type.
+    expect(chat.messages.filter((m) => m.sender === 'ai')).toHaveLength(0);
+    expect(chat.upcoming).toHaveLength(1);
+    expect(chat.upcoming[0]).toBeGreaterThan(1000);
+    expect(chat.upcoming[0]).toBeLessThan(5000);
+
+    // A message sent while she's typing lands before her bubble.
+    await me('POST', '/api/chat/messages', { text: 'hello??' });
+    const rows = t.db.prepare('SELECT sender, text, created_at FROM messages ORDER BY created_at, id').all() as MessageRow[];
+    expect(rows.map((r) => r.text)).toEqual(['u up?', 'hello??', 'You said: u up?']);
+
+    // Her reply to it is queued after the first one, never interleaved with it. She wrote her
+    // first bubble before reading "hello??", so that's how the model sees it.
+    const next = await json<ChatDTO>(await me('POST', '/api/chat/reply', {}));
+    expect(t.fake.calls[1].messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    expect(next.upcoming).toHaveLength(2);
+    expect(next.upcoming[1]).toBeGreaterThan(next.upcoming[0]);
   });
 });
 

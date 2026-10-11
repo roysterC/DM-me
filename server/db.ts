@@ -137,6 +137,10 @@ const MIGRATIONS: string[] = [
   DELETE FROM messages
   WHERE sender = 'ai' AND text = 'Hey, I’m Nova. Text me anything: plans, ideas, a rant. I’ll write back.';
   `,
+  // Chats are ordered by when each message appears (Alisa's bubbles can be due later than they're written).
+  `
+  CREATE INDEX messages_by_time ON messages (conversation_id, created_at, id);
+  `,
 ];
 
 export function openDb(dataDir: string): DB {

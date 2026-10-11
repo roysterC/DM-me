@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import type { ChatDTO, OpenPhotoDTO, PhotoMode, StoryDTO } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { Avatar, type RingState } from '../components/Avatar';
@@ -13,19 +13,35 @@ import { prepareImage, type PreparedImage } from '../lib/image';
 import { buildThread, type UiMessage } from '../lib/thread';
 import { seenLabel } from '../lib/time';
 
-/** How long to wait after the user's last message before Alisa answers, so bursts get one reply. */
+/** How long to wait after the user's last message before asking for Alisa's reply, so bursts get one reply. */
 const REPLY_DELAY_MS = 1200;
-/** Pause between Alisa's bubbles when she sends several. */
-const BUBBLE_GAP_MS = 900;
+/** When one of Alisa's bubbles lands, the typing dots pause this long before she starts the next. */
+const TYPING_PAUSE_MS = 600;
+/** Fetch a due bubble this long after its time, so it's surely showing on the server. */
+const DUE_SLACK_MS = 150;
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/**
+ * Whether Alisa owes a reply: something the visitor sent that she hasn't read, or
+ * (after a failed attempt) a last message from them she never answered. With her
+ * bubbles landing over time, the visitor's message isn't always the last one shown.
+ */
+function needsReply(list: UiMessage[], queued = false): boolean {
+  if (list.some((m) => m.sender === 'user' && !m.pending && !m.readAt)) return true;
+  // While her bubbles are still due, the visitor's message shows last but is already answered.
+  if (queued) return false;
+  const last = list.at(-1);
+  return !!last && last.sender === 'user' && !last.pending;
+}
 
 export function ChatPage() {
-  const [chat, setChat] = useState<Omit<ChatDTO, 'messages'> | null>(null);
+  const [chat, setChat] = useState<Omit<ChatDTO, 'messages' | 'upcoming'> | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [stories, setStories] = useState<StoryDTO[]>([]);
-  const [hidden, setHidden] = useState<Set<number>>(new Set());
-  const [typing, setTyping] = useState(false);
+  // Typing shows while the reply is being written, and while her bubbles are still due.
+  const [waiting, setWaiting] = useState(false);
+  const [queued, setQueued] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const typing = waiting || (queued && !paused);
   const [seenNow, setSeenNow] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -42,55 +58,77 @@ export function ChatPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const messagesRef = useRef<UiMessage[]>([]);
   const replyTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const queuedRef = useRef(false);
+  const dueTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const pauseTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const replying = useRef(false);
   const nextTempId = useRef(-1);
   const retryPayload = useRef(new Map<number, () => Promise<void>>());
+  const scheduleReplyRef = useRef<(delay?: number) => void>(() => {});
   messagesRef.current = messages;
 
   const aiConnected = chat?.aiConnected ?? true;
 
   // ---- Alisa's replies -------------------------------------------------------
 
+  /** Takes the server's view of the chat, keeping what the visitor sent since (or is still sending). */
+  const applyServer = useCallback((list: UiMessage[]) => {
+    const known = new Set(list.map((m) => m.id));
+    const merged = [...list, ...messagesRef.current.filter((m) => !known.has(m.id) && (m.pending || m.sender === 'user'))];
+    messagesRef.current = merged;
+    setMessages(merged);
+  }, []);
+
+  const replyIfUnanswered = useCallback(() => {
+    if (needsReply(messagesRef.current, queuedRef.current)) scheduleReplyRef.current(REPLY_DELAY_MS);
+  }, []);
+
+  /** Shows "typing…" until each of Alisa's queued bubbles is due, then fetches it. */
+  const follow = useCallback(
+    (upcoming: number[]) => {
+      clearTimeout(dueTimer.current);
+      queuedRef.current = upcoming.length > 0;
+      setQueued(upcoming.length > 0);
+      if (upcoming.length === 0) return;
+      dueTimer.current = setTimeout(async () => {
+        try {
+          const c = await api.chat();
+          applyServer(c.messages);
+          if (c.upcoming.length) {
+            setPaused(true);
+            clearTimeout(pauseTimer.current);
+            pauseTimer.current = setTimeout(() => setPaused(false), TYPING_PAUSE_MS);
+          }
+          follow(c.upcoming);
+          if (!c.upcoming.length) replyIfUnanswered();
+        } catch {
+          follow(upcoming.map(() => 3000));
+        }
+      }, Math.max(0, Math.min(...upcoming)) + DUE_SLACK_MS);
+    },
+    [applyServer, replyIfUnanswered],
+  );
+
   const runReply = useCallback(async () => {
-    if (replying.current) return;
-    const last = messagesRef.current.at(-1);
-    if (!last || last.sender !== 'user' || last.pending) return;
+    if (replying.current || !needsReply(messagesRef.current, queuedRef.current)) return;
     replying.current = true;
     setReplyError(null);
     setSeenNow(true);
-    const typingTimer = setTimeout(() => setTyping(true), 500);
+    const typingTimer = setTimeout(() => setWaiting(true), 500);
     try {
-      const before = new Set(messagesRef.current.map((m) => m.id));
       const res = await api.reply();
-      clearTimeout(typingTimer);
-      setTyping(true);
-      const fresh = res.messages.filter((m) => !before.has(m.id) && m.sender === 'ai');
-      const queued = fresh.slice(1).map((m) => m.id);
-      setHidden(new Set(queued));
-      // Keep anything still uploading, or delivered after the server took its snapshot.
-      const newest = Math.max(0, ...res.messages.map((m) => m.id));
-      const merged = [...res.messages, ...messagesRef.current.filter((m) => m.pending || m.id > newest)];
-      messagesRef.current = merged;
-      setMessages(merged);
-      for (const id of queued) {
-        await sleep(BUBBLE_GAP_MS);
-        setHidden((h) => {
-          const n = new Set(h);
-          n.delete(id);
-          return n;
-        });
-      }
+      applyServer(res.messages);
+      follow(res.upcoming);
     } catch (err) {
       setReplyError(err instanceof ApiError ? err.message : 'Alisa couldn’t reply. Try again.');
     } finally {
       clearTimeout(typingTimer);
-      setTyping(false);
+      setWaiting(false);
       replying.current = false;
       // Anything sent while Alisa was answering gets its own reply.
-      const latest = messagesRef.current.at(-1);
-      if (latest && latest.sender === 'user' && !latest.pending && !latest.readAt) scheduleReply(REPLY_DELAY_MS);
+      replyIfUnanswered();
     }
-  }, []);
+  }, [applyServer, follow, replyIfUnanswered]);
 
   const scheduleReply = useCallback(
     (delay = REPLY_DELAY_MS) => {
@@ -99,6 +137,7 @@ export function ChatPage() {
     },
     [runReply],
   );
+  scheduleReplyRef.current = scheduleReply;
 
   // ---- Loading ------------------------------------------------------------
 
@@ -107,14 +146,14 @@ export function ChatPage() {
     Promise.all([api.chat(), api.stories()])
       .then(([c, s]) => {
         if (!alive) return;
-        const { messages: list, ...rest } = c;
+        const { messages: list, upcoming, ...rest } = c;
         setChat(rest);
+        messagesRef.current = list;
         setMessages(list);
         setStories(s.stories);
-        if (list.at(-1)?.sender === 'user') {
-          messagesRef.current = list;
-          scheduleReply(300);
-        }
+        // Pick up where things were: Alisa still typing, or a message still waiting for her.
+        if (upcoming.length) follow(upcoming);
+        else if (needsReply(list)) scheduleReply(300);
       })
       .catch((err) => alive && setLoadError(err instanceof ApiError ? err.message : 'Couldn’t load the chat.'));
     const refreshStories = setInterval(() => api.stories().then((s) => alive && setStories(s.stories)).catch(() => {}), 5 * 60_000);
@@ -122,19 +161,20 @@ export function ChatPage() {
       alive = false;
       clearInterval(refreshStories);
       clearTimeout(replyTimer.current);
+      clearTimeout(dueTimer.current);
+      clearTimeout(pauseTimer.current);
     };
-  }, [scheduleReply]);
+  }, [scheduleReply, follow]);
 
   // ---- Scrolling ------------------------------------------------------------
 
-  const visible = useMemo(() => messages.filter((m) => !hidden.has(m.id)), [messages, hidden]);
   const firstScroll = useRef(true);
   useLayoutEffect(() => {
     const el = listRef.current;
-    if (!el || visible.length === 0) return;
+    if (!el || messages.length === 0) return;
     el.scrollTo({ top: el.scrollHeight, behavior: firstScroll.current ? 'auto' : 'smooth' });
     firstScroll.current = false;
-  }, [visible.length, typing, replyError]);
+  }, [messages.length, typing, replyError]);
 
   // ---- Sending --------------------------------------------------------------
 
@@ -277,8 +317,8 @@ export function ChatPage() {
   if (!chat) return <div className="phone center-state" aria-busy="true" />;
 
   const persona = chat.persona;
-  const rows = buildThread(visible);
-  const last = visible.at(-1);
+  const rows = buildThread(messages);
+  const last = messages.at(-1);
   const showSeen = !typing && last?.sender === 'user' && !last.pending && (last.readAt || seenNow);
 
   return (
@@ -460,8 +500,8 @@ export function ChatPage() {
           onDeleteChat={async () => {
             const fresh = await api.deleteChat();
             clearTimeout(replyTimer.current);
+            follow([]);
             setInfo(false);
-            setHidden(new Set());
             setReplyError(null);
             setSeenNow(false);
             messagesRef.current = fresh.messages;

@@ -51,6 +51,8 @@ export interface MessageDTO {
 export interface ChatDTO {
   persona: PersonaDTO;
   messages: MessageDTO[];
+  /** Milliseconds until each of Alisa's queued bubbles appears; she's "typing" while any are left. */
+  upcoming: number[];
   /** False when the server has no way to reach Claude, so the UI can say so up front. */
   aiConnected: boolean;
 }
