@@ -10,10 +10,14 @@
   --link: #0064e0;
   --danger: #c4001d;
   --ring-seen: #c7c7c7;
-  --sent: linear-gradient(180deg, #8a3ae8 0%, #5b4cf0 45%, #2f6bef 100%);
+  /* Instagram's sent colour: magenta-purple at the top of the screen to indigo at the bottom. */
+  --sent: linear-gradient(180deg, #b03ccc 0%, #8e3bdf 35%, #6343f1 70%, #4a52f0 100%);
   --persona: linear-gradient(135deg, #8a3ae8, #2f6bef);
   --ring: linear-gradient(45deg, #feda75, #fa7e1e 30%, #d62976 60%, #962fbf 85%, #4f5bd5);
   --spent-line: #c7c7c7;
+  /* The top and bottom bars: see-through, with the chat blurred behind. */
+  --bar-bg: rgba(255, 255, 255, 0.72);
+  --quote-bg: #f2f2f2;
   color-scheme: light;
 }
 
@@ -31,6 +35,8 @@
     --danger: #ff6b6b;
     --ring-seen: #4a4a4a;
     --spent-line: #3a3a3a;
+    --bar-bg: rgba(0, 0, 0, 0.6);
+    --quote-bg: #1c1c1c;
     color-scheme: dark;
   }
 }
@@ -230,6 +236,29 @@ a {
   padding: 0 6px 0 10px;
   border-bottom: 1px solid var(--line);
 }
+/* On the chat, the header floats over the messages, which scroll faintly visible behind it. */
+.chat-header.floating {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  height: calc(60px + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
+  border-bottom: 0;
+}
+.chat-header.floating,
+.bottom-bar {
+  background: var(--bar-bg);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .chat-header.floating,
+  .bottom-bar {
+    background: var(--bg);
+  }
+}
 .header-avatar {
   width: 44px;
   height: 44px;
@@ -262,8 +291,12 @@ a {
 
 .thread {
   flex: 1;
+  overflow-x: hidden;
   overflow-y: auto;
-  padding: 16px 12px 8px;
+  overscroll-behavior: contain;
+  /* Vertical scrolling is the browser's; sideways drags are the chat's gestures. */
+  touch-action: pan-y;
+  padding: calc(var(--top-h, 60px) + 16px) 12px calc(var(--bottom-h, 84px) + 8px);
   display: flex;
   flex-direction: column;
   scrollbar-width: none;
@@ -303,9 +336,79 @@ a {
 }
 
 .msg {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 8px;
+  transform: translateX(calc(var(--swipe, 0px) - var(--reveal, 0px)));
+}
+.thread.settling .msg,
+.msg.settling {
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.thread.settling .msg-time,
+.msg.settling .msg-swipe-icon {
+  transition: opacity 0.22s ease;
+}
+
+/* Each message's time, just off the right edge until the chat is swiped left. */
+.msg-time {
+  position: absolute;
+  top: 50%;
+  right: -64px;
+  width: 56px;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  opacity: var(--reveal-o, 0);
+  pointer-events: none;
+}
+
+/* The reply arrow that appears as a message is pulled right. */
+.msg-swipe-icon {
+  position: absolute;
+  top: 50%;
+  left: -36px;
+  display: flex;
+  color: var(--muted);
+  opacity: var(--swipe-o, 0);
+  transform: translateY(-50%) scale(calc(0.6 + 0.4 * var(--swipe-o, 0)));
+  pointer-events: none;
+}
+.swipe-armed .msg-swipe-icon {
+  color: var(--fg);
+}
+
+/* Reply button beside a message, for mouse and keyboard users. */
+.msg-reply-btn {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--muted);
+  opacity: 0;
+}
+.msg-reply-btn:focus-visible {
+  opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .msg:hover .msg-reply-btn {
+    opacity: 1;
+  }
+  .msg-reply-btn:hover {
+    background: var(--field);
+    color: var(--fg);
+  }
+}
+@media (hover: none) {
+  .msg-reply-btn {
+    display: none;
+  }
 }
 .msg-mine {
   justify-content: flex-end;
@@ -343,8 +446,13 @@ a {
 }
 .bubble-sent {
   color: #ffffff;
-  background: var(--sent);
-  background-attachment: fixed;
+}
+.sent-fill {
+  background-color: #6343f1;
+  background-image: var(--sent);
+  background-repeat: no-repeat;
+  background-size: 100% var(--fill-h, 100vh);
+  background-position: 0 var(--fill-y, 0px);
 }
 .bubble-recv {
   background: var(--recv);
@@ -394,8 +502,6 @@ a {
 }
 .eph-sent {
   color: #ffffff;
-  background: var(--sent);
-  background-attachment: fixed;
 }
 .eph-recv {
   background: var(--recv);
@@ -441,6 +547,70 @@ a {
 }
 .eph-recv .eph-sub {
   color: var(--muted);
+}
+
+.reply-quote {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+  margin-bottom: 4px;
+}
+.msg-mine .reply-quote {
+  align-items: flex-end;
+}
+.msg-theirs .reply-quote {
+  align-items: flex-start;
+}
+.reply-quote-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.reply-quote-text {
+  max-width: 100%;
+  padding: 8px 14px;
+  border-radius: 18px;
+  background: var(--quote-bg);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 18px;
+  text-align: left;
+}
+/* Up to three lines of the quoted message. */
+.reply-quote-text span {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* The thin bar beside a quote, on the outer edge like Instagram's. */
+.msg-mine .reply-quote-text {
+  margin-right: 10px;
+  box-shadow: 10px 0 0 -7px var(--chip-line);
+}
+.msg-theirs .reply-quote-text {
+  margin-left: 10px;
+  box-shadow: -10px 0 0 -7px var(--chip-line);
+}
+
+/* A quoted message pulses when you jump to it. */
+.flash .bubble,
+.flash .eph,
+.flash .photo-kept {
+  animation: flash 1.2s ease;
+}
+@keyframes flash {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: none;
+  }
+  25% {
+    transform: scale(1.04);
+    filter: brightness(1.25);
+  }
 }
 
 .story-quote {
@@ -539,8 +709,41 @@ a {
   padding: 8px 4px;
 }
 
+.bottom-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+}
+
+.reply-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 0 20px;
+}
+.reply-bar-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.reply-bar-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.reply-bar-snippet {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .offline-banner {
-  margin: 0 12px;
+  margin: 8px 12px 0;
   padding: 10px 12px;
   border-radius: 12px;
   font-size: 13px;
@@ -1192,8 +1395,15 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .typing span {
+  .typing span,
+  .flash .bubble,
+  .flash .eph,
+  .flash .photo-kept {
     animation: none;
+  }
+  .thread.settling .msg,
+  .msg.settling {
+    transition: none;
   }
 }
 

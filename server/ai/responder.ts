@@ -3,6 +3,8 @@ import type { PhotoMode } from '../../shared/types';
 
 export interface PersonaReply {
   messages: string[];
+  /** One of the visitor's messages ("m12") her first bubble quote-replies to. */
+  replyTo: string | null;
   heartLatest: boolean;
   /** A camera-roll reference such as "p12". */
   photo: { ref: string; mode: PhotoMode } | null;
@@ -31,11 +33,15 @@ export function replySchema(photoRefs: string[]) {
         items: { type: 'string' },
         description: 'Chat bubbles to send, in order. Usually one to three short ones.',
       },
+      reply_to_message: {
+        type: 'string',
+        description: 'Reference of one of their messages (like "m12") that your first bubble quote-replies to, or "none". Almost always "none".',
+      },
       heart_latest_user_message: { type: 'boolean' },
       send_photo: { type: 'string', enum: ['none', ...photoRefs] },
       send_photo_mode: { type: 'string', enum: ['keep', 'once', 'replay'] },
     },
-    required: ['messages', 'heart_latest_user_message', 'send_photo', 'send_photo_mode'],
+    required: ['messages', 'reply_to_message', 'heart_latest_user_message', 'send_photo', 'send_photo_mode'],
     additionalProperties: false,
   };
 }
@@ -54,7 +60,8 @@ export function parseReply(raw: string, photoRefs: string[]): PersonaReply {
   const ref = typeof data.send_photo === 'string' && photoRefs.includes(data.send_photo) ? data.send_photo : null;
   const mode: PhotoMode =
     data.send_photo_mode === 'once' || data.send_photo_mode === 'replay' ? data.send_photo_mode : 'keep';
-  return { messages, heartLatest: data.heart_latest_user_message === true, photo: ref ? { ref, mode } : null };
+  const replyTo = typeof data.reply_to_message === 'string' && /^m\d+$/.test(data.reply_to_message) ? data.reply_to_message : null;
+  return { messages, replyTo, heartLatest: data.heart_latest_user_message === true, photo: ref ? { ref, mode } : null };
 }
 
 const textOf = (content: Anthropic.ContentBlock[]) =>
@@ -97,7 +104,7 @@ export class ClaudeResponder implements Responder {
       messages,
     });
     if (response.stop_reason === 'refusal') {
-      return { messages: ['I can’t help with that one.'], heartLatest: false, photo: null };
+      return { messages: ['I can’t help with that one.'], replyTo: null, heartLatest: false, photo: null };
     }
     const reply = parseReply(textOf(response.content), photoRefs);
     if (reply.messages.length === 0 && !reply.photo) {
@@ -138,7 +145,8 @@ export class ClaudeResponder implements Responder {
 
 /**
  * Deterministic stand-in used by tests and local demos (DM_ME_FAKE_AI=1).
- * Mentions of "photo" make it send a view-once photo; "heart" earns a heart.
+ * Mentions of "photo" make it send a view-once photo; "heart" earns a heart;
+ * "quote me" makes it quote-reply to the first message of the visitor's turn.
  */
 export class FakeResponder implements Responder {
   calls: ReplyRequest[] = [];
@@ -147,16 +155,14 @@ export class FakeResponder implements Responder {
     this.calls.push(req);
     const last = req.messages[req.messages.length - 1];
     const blocks = typeof last.content === 'string' ? [{ type: 'text' as const, text: last.content }] : last.content;
-    const text = blocks
-      .map((b) => (b.type === 'text' ? b.text : ''))
-      .join(' ')
-      .replace(/\[[^\]]*\]\s*/g, '')
-      .trim();
+    const raw = blocks.map((b) => (b.type === 'text' ? b.text : '')).join(' ');
+    const text = raw.replace(/\[[^\]]*\]\s*/g, '').trim();
     const sawImage = blocks.some((b) => b.type === 'image');
     const lower = text.toLowerCase();
     const wantsPhoto = !sawImage && lower.includes('photo') && req.photoRefs.length > 0;
     return {
       messages: sawImage ? ['Ooh, that looks great.', 'Golden edges and everything.'] : [`You said: ${text}`],
+      replyTo: lower.includes('quote me') ? (/\[(m\d+) ·/.exec(raw)?.[1] ?? null) : null,
       heartLatest: sawImage || lower.includes('heart'),
       photo: wantsPhoto ? { ref: req.photoRefs[0], mode: lower.includes('replay') ? 'replay' : 'once' } : null,
     };

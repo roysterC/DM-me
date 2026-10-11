@@ -1,6 +1,7 @@
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 
-const timeOf = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+/** In the viewer's own format: "14:38" in the UK, "2:38 PM" in the US. */
+const timeOf = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 /** The centered label between messages: "Today 9:02 PM", "Yesterday 8:10 AM", "Sat 9:02 PM", "Oct 3, 9:02 PM". */
 export function separatorLabel(iso: string, now = new Date()): string {
@@ -13,6 +14,9 @@ export function separatorLabel(iso: string, now = new Date()): string {
   const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
   return `${date}, ${timeOf(d)}`;
 }
+
+/** The time beside a message when you swipe the chat left. */
+export const clockTime = (iso: string) => timeOf(new Date(iso));
 
 /** Instagram-style short age: "now", "4m", "3h", "2d", "5w". */
 export function shortAge(iso: string, now = Date.now()): string {

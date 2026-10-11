@@ -23,14 +23,24 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
   const chatState = async (conversationId: number): Promise<ChatDTO> => {
     const stories = activeStoryMap(db);
     const { shown, upcoming } = splitDue(listMessages(db, conversationId));
+    const byId = new Map(shown.map((r) => [r.id, r]));
+    const lookup = (id: number) => byId.get(id) ?? getMessage(db, conversationId, id);
     return {
       persona: PERSONA,
-      messages: await Promise.all(shown.map((r) => toMessageDTO(r, stories, media))),
+      messages: await Promise.all(shown.map((r) => toMessageDTO(r, stories, media, lookup))),
       upcoming,
       aiConnected,
     };
   };
-  const messageDTO = (row: MessageRow) => toMessageDTO(row, activeStoryMap(db), media);
+  const messageDTO = (row: MessageRow) =>
+    toMessageDTO(row, activeStoryMap(db), media, (id) => getMessage(db, row.conversation_id, id));
+  /** A message in this chat, already showing, that a new message may quote; anything else is ignored. */
+  const replyTarget = (conversationId: number, raw: unknown): number | null => {
+    const id = Number(raw);
+    if (!raw || !Number.isInteger(id)) return null;
+    const row = getMessage(db, conversationId, id);
+    return row && row.created_at <= nowIso() ? row.id : null;
+  };
   const canSend = (c: Parameters<typeof clientIp>[0], visitorId: number) =>
     sendsPerVisitor.take(`v${visitorId}`) && sendsPerIp.take(clientIp(c));
 
@@ -38,15 +48,17 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
 
   app.post('/messages', async (c) => {
     const visitor = c.get('visitor');
-    const body = await c.req.json<{ text?: string }>().catch(() => ({}) as never);
+    const body = await c.req.json<{ text?: string; replyTo?: number }>().catch(() => ({}) as never);
     const text = String(body.text ?? '').trim();
     if (!text) return c.json({ error: 'Message is empty.' }, 400);
     if (text.length > MAX_TEXT) return c.json({ error: `Messages can be up to ${MAX_TEXT} characters.` }, 400);
     if (!canSend(c, visitor.id)) return c.json({ error: 'You’re sending messages too fast.' }, 429);
     const conversationId = conversationFor(db, visitor.id);
     const { lastInsertRowid } = db
-      .prepare("INSERT INTO messages (conversation_id, sender, kind, text, created_at) VALUES (?, 'user', 'text', ?, ?)")
-      .run(conversationId, text, nowIso());
+      .prepare(
+        "INSERT INTO messages (conversation_id, sender, kind, text, reply_to_id, created_at) VALUES (?, 'user', 'text', ?, ?, ?)",
+      )
+      .run(conversationId, text, replyTarget(conversationId, body.replyTo), nowIso());
     return c.json({ message: await messageDTO(getMessage(db, conversationId, Number(lastInsertRowid))!) });
   });
 
@@ -66,10 +78,10 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
     const conversationId = conversationFor(db, visitor.id);
     const { lastInsertRowid } = db
       .prepare(
-        `INSERT INTO messages (conversation_id, sender, kind, media_key, media_mime, media_width, media_height, photo_mode, created_at)
-         VALUES (?, 'user', 'photo', ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO messages (conversation_id, sender, kind, media_key, media_mime, media_width, media_height, photo_mode, reply_to_id, created_at)
+         VALUES (?, 'user', 'photo', ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(conversationId, saved.key, saved.mime, saved.width, saved.height, mode, nowIso());
+      .run(conversationId, saved.key, saved.mime, saved.width, saved.height, mode, replyTarget(conversationId, form.replyTo), nowIso());
     return c.json({ message: await messageDTO(getMessage(db, conversationId, Number(lastInsertRowid))!) });
   });
 

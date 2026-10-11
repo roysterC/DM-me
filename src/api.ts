@@ -40,11 +40,13 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 export const api = {
   chat: () => request<ChatDTO>('GET', '/api/chat'),
   deleteChat: () => request<ChatDTO>('DELETE', '/api/chat'),
-  sendText: (text: string) => request<{ message: MessageDTO }>('POST', '/api/chat/messages', { text }),
-  sendPhoto: (blob: Blob, mode: PhotoMode) => {
+  sendText: (text: string, replyTo?: number) =>
+    request<{ message: MessageDTO }>('POST', '/api/chat/messages', { text, replyTo }),
+  sendPhoto: (blob: Blob, mode: PhotoMode, replyTo?: number) => {
     const form = new FormData();
     form.set('photo', blob, 'photo.jpg');
     form.set('mode', mode);
+    if (replyTo) form.set('replyTo', String(replyTo));
     return request<{ message: MessageDTO }>('POST', '/api/chat/photos', form);
   },
   reply: () =>

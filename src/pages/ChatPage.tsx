@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
-import type { ChatDTO, OpenPhotoDTO, PhotoMode, StoryDTO } from '../../shared/types';
+import type { ChatDTO, OpenPhotoDTO, PhotoMode, ReplyRefDTO, StoryDTO } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { Avatar, type RingState } from '../components/Avatar';
 import { CameraSheet } from '../components/CameraSheet';
-import { IconCamera, IconImage, IconInfo } from '../components/Icons';
+import { IconCamera, IconClose, IconImage, IconInfo } from '../components/Icons';
 import { InfoSheet } from '../components/InfoSheet';
 import { MessageItem } from '../components/MessageItem';
 import { Lightbox, PhotoViewer } from '../components/PhotoViewer';
@@ -12,6 +12,8 @@ import { StoryViewer } from '../components/StoryViewer';
 import { prepareImage, type PreparedImage } from '../lib/image';
 import { buildThread, type UiMessage } from '../lib/thread';
 import { seenLabel } from '../lib/time';
+import { useScrollGradient } from '../lib/useScrollGradient';
+import { useThreadGestures } from '../lib/useThreadGestures';
 
 /** How long to wait after the user's last message before asking for Alisa's reply, so bursts get one reply. */
 const REPLY_DELAY_MS = 1200;
@@ -25,6 +27,14 @@ const DUE_SLACK_MS = 150;
  * (after a failed attempt) a last message from them she never answered. With her
  * bubbles landing over time, the visitor's message isn't always the last one shown.
  */
+/** What a reply shows of the message it quotes. */
+const quoteOf = (m: UiMessage): ReplyRefDTO => ({
+  id: m.id,
+  sender: m.sender,
+  text: m.kind === 'photo' ? null : m.text,
+  photo: m.kind === 'photo',
+});
+
 function needsReply(list: UiMessage[], queued = false): boolean {
   if (list.some((m) => m.sender === 'user' && !m.pending && !m.readAt)) return true;
   // While her bubbles are still due, the visitor's message shows last but is already answered.
@@ -53,8 +63,13 @@ export function ChatPage() {
   const [viewer, setViewer] = useState<{ message: UiMessage; opened: OpenPhotoDTO } | null>(null);
   const [lightbox, setLightbox] = useState<{ url: string; alt: string } | null>(null);
   const [info, setInfo] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<UiMessage | null>(null);
 
   const listRef = useRef<HTMLDivElement>(null);
+  const phoneRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const messagesRef = useRef<UiMessage[]>([]);
   const replyTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -176,6 +191,51 @@ export function ChatPage() {
     firstScroll.current = false;
   }, [messages.length, typing, replyError]);
 
+  // The top and bottom bars float over the chat; leave room for them, and stay at the
+  // bottom when the bottom bar grows (a reply preview opening, say).
+  const loaded = chat !== null;
+  useLayoutEffect(() => {
+    const phone = phoneRef.current;
+    const thread = listRef.current;
+    const header = headerRef.current;
+    const bottom = bottomRef.current;
+    if (!phone || !thread || !header || !bottom) return;
+    const measure = () => {
+      const atBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 80;
+      phone.style.setProperty('--top-h', `${header.offsetHeight}px`);
+      phone.style.setProperty('--bottom-h', `${bottom.offsetHeight}px`);
+      if (atBottom) thread.scrollTop = thread.scrollHeight;
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    observer.observe(bottom);
+    return () => observer.disconnect();
+  }, [loaded]);
+
+  useScrollGradient(listRef, messages);
+
+  // ---- Replying to a message ---------------------------------------------------
+
+  const startReply = useCallback((id: number) => {
+    const m = messagesRef.current.find((x) => x.id === id);
+    if (!m || m.pending || m.id <= 0) return;
+    setReplyingTo(m);
+    inputRef.current?.focus();
+  }, []);
+  useThreadGestures(listRef, startReply, loaded);
+
+  /** Scrolls to a quoted message and makes it pulse briefly so it's easy to spot. */
+  const jumpTo = (id: number) => {
+    const el = document.getElementById(`msg-${id}`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.remove('flash');
+    void el.offsetWidth;
+    el.classList.add('flash');
+    window.setTimeout(() => el.classList.remove('flash'), 1400);
+  };
+
   // ---- Sending --------------------------------------------------------------
 
   const addTemp = (partial: Partial<UiMessage>): UiMessage => {
@@ -190,6 +250,7 @@ export function ChatPage() {
       heartByAi: false,
       photo: null,
       story: null,
+      replyTo: null,
       pending: 'sending',
       ...partial,
     };
@@ -221,14 +282,19 @@ export function ChatPage() {
     const value = text.trim();
     if (!value) return;
     setText('');
-    const temp = addTemp({ kind: 'text', text: value });
-    deliver(temp, () => api.sendText(value));
+    const quoted = replyingTo;
+    setReplyingTo(null);
+    const temp = addTemp({ kind: 'text', text: value, replyTo: quoted && quoteOf(quoted) });
+    deliver(temp, () => api.sendText(value, quoted?.id));
   };
 
   const sendPhoto = (image: PreparedImage, mode: PhotoMode) => {
     setSendSheet(null);
+    const quoted = replyingTo;
+    setReplyingTo(null);
     const temp = addTemp({
       kind: 'photo',
+      replyTo: quoted && quoteOf(quoted),
       photo: {
         mode,
         url: mode === 'keep' ? image.url : null,
@@ -238,7 +304,7 @@ export function ChatPage() {
         maxViews: mode === 'once' ? 1 : mode === 'replay' ? 2 : null,
       },
     });
-    deliver(temp, () => api.sendPhoto(image.blob, mode));
+    deliver(temp, () => api.sendPhoto(image.blob, mode, quoted?.id));
   };
 
   const pickFromLibrary = async (file: File | undefined) => {
@@ -322,8 +388,8 @@ export function ChatPage() {
   const showSeen = !typing && last?.sender === 'user' && !last.pending && (last.readAt || seenNow);
 
   return (
-    <div className="phone">
-      <header className="chat-header">
+    <div className="phone" ref={phoneRef}>
+      <header className="chat-header floating" ref={headerRef}>
         <div className="header-avatar">
           <Avatar
             persona={persona}
@@ -376,6 +442,8 @@ export function ChatPage() {
               onOpenEphemeral={openEphemeral}
               onOpenKept={(m) => m.photo?.url && setLightbox({ url: m.photo.url, alt: m.sender === 'user' ? 'Photo you sent' : `Photo from ${persona.name}` })}
               onRetry={(m) => retryPayload.current.get(m.id)?.()}
+              onReply={(m) => startReply(m.id)}
+              onJumpTo={jumpTo}
             />
           ),
         )}
@@ -407,43 +475,59 @@ export function ChatPage() {
         )}
       </div>
 
-      {!aiConnected && (
-        <p className="offline-banner">
-          {persona.name} isn’t connected yet. Add <code>ANTHROPIC_API_KEY</code> on the server to get replies.
-        </p>
-      )}
+      <div className="bottom-bar" ref={bottomRef}>
+        {!aiConnected && (
+          <p className="offline-banner">
+            {persona.name} isn’t connected yet. Add <code>ANTHROPIC_API_KEY</code> on the server to get replies.
+          </p>
+        )}
 
-      <form className="composer" onSubmit={sendText}>
-        <div className="composer-pill">
-          <button type="button" className="camera-btn" onClick={() => setCamera(true)} aria-label="Camera">
-            <span>
-              <IconCamera size={20} strokeWidth={2} />
-            </span>
-          </button>
-          <label className="sr-only" htmlFor="composer-input">
-            Message {persona.name}
-          </label>
-          <input
-            id="composer-input"
-            placeholder="Message..."
-            autoComplete="off"
-            enterKeyHint="send"
-            maxLength={2000}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-          />
-          {text.trim() ? (
-            <button type="submit" className="send-text">
-              Send
+        {replyingTo && (
+          <div className="reply-bar">
+            <div className="reply-bar-text">
+              <span className="reply-bar-title">Replying to {replyingTo.sender === 'ai' ? persona.name : 'yourself'}</span>
+              <span className="reply-bar-snippet">{replyingTo.kind === 'photo' ? 'Photo' : replyingTo.text}</span>
+            </div>
+            <button type="button" className="icon-btn" onClick={() => setReplyingTo(null)} aria-label="Cancel reply">
+              <IconClose size={20} />
             </button>
-          ) : (
-            <button type="button" className="icon-btn" onClick={() => fileRef.current?.click()} aria-label="Send a photo from your library">
-              <IconImage size={24} />
+          </div>
+        )}
+
+        <form className="composer" onSubmit={sendText}>
+          <div className="composer-pill">
+            <button type="button" className="camera-btn" onClick={() => setCamera(true)} aria-label="Camera">
+              <span>
+                <IconCamera size={20} strokeWidth={2} />
+              </span>
             </button>
-          )}
-          <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => pickFromLibrary(e.target.files?.[0])} />
-        </div>
-      </form>
+            <label className="sr-only" htmlFor="composer-input">
+              Message {persona.name}
+            </label>
+            <input
+              ref={inputRef}
+              id="composer-input"
+              onKeyDown={(e) => e.key === 'Escape' && setReplyingTo(null)}
+              placeholder="Message..."
+              autoComplete="off"
+              enterKeyHint="send"
+              maxLength={2000}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+            {text.trim() ? (
+              <button type="submit" className="send-text">
+                Send
+              </button>
+            ) : (
+              <button type="button" className="icon-btn" onClick={() => fileRef.current?.click()} aria-label="Send a photo from your library">
+                <IconImage size={24} />
+              </button>
+            )}
+            <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => pickFromLibrary(e.target.files?.[0])} />
+          </div>
+        </form>
+      </div>
 
       {camera && (
         <CameraSheet
@@ -501,6 +585,7 @@ export function ChatPage() {
             const fresh = await api.deleteChat();
             clearTimeout(replyTimer.current);
             follow([]);
+            setReplyingTo(null);
             setInfo(false);
             setReplyError(null);
             setSeenNow(false);

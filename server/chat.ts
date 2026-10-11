@@ -1,5 +1,5 @@
-import type { MessageDTO, StoryRefDTO } from '../shared/types';
-import { buildConversation } from './ai/context';
+import type { MessageDTO, ReplyRefDTO, StoryRefDTO } from '../shared/types';
+import { buildConversation, messageRef } from './ai/context';
 import { systemPrompt } from './ai/persona';
 import type { Responder } from './ai/responder';
 import type { DB, MessageRow, StoryRow } from './db';
@@ -60,10 +60,17 @@ export function ownedUploads(rows: MessageRow[]): string[] {
   return rows.filter((r) => r.sender === 'user' && r.media_key?.startsWith('uploads/')).map((r) => r.media_key!);
 }
 
+/** What a reply shows of the message it quotes. */
+export function replyRef(quoted: MessageRow | undefined): ReplyRefDTO | null {
+  if (!quoted) return null;
+  return { id: quoted.id, sender: quoted.sender, text: quoted.kind === 'photo' ? null : quoted.text, photo: quoted.kind === 'photo' };
+}
+
 export async function toMessageDTO(
   r: MessageRow,
   activeStories: Map<number, StoryRow>,
   media: MediaStore,
+  lookup: (id: number) => MessageRow | undefined = () => undefined,
 ): Promise<MessageDTO> {
   let story: StoryRefDTO | null = null;
   if (r.kind === 'story_reply' && r.story_snapshot) {
@@ -100,6 +107,7 @@ export async function toMessageDTO(
     heartByAi: r.heart_by_ai === 1,
     photo,
     story,
+    replyTo: r.reply_to_id != null ? replyRef(lookup(r.reply_to_id)) : null,
   };
 }
 
@@ -152,16 +160,23 @@ export class ReplyService {
       .run(nowIso(), conversationId);
 
     const { roll, byRef, refByKey } = cameraRoll(this.db);
-    const { messages, opening } = await buildConversation(rows, this.media, timeZone, refByKey);
+    const { messages, opening } = await buildConversation(rows, this.media, timeZone, refByKey, (id) =>
+      getMessage(this.db, conversationId, id),
+    );
     const reply = await this.responder.reply({ system: systemPrompt(roll), messages, photoRefs: [...byRef.keys()] });
 
     const insertText = this.db.prepare(
-      "INSERT INTO messages (conversation_id, sender, kind, text, created_at) VALUES (?, 'ai', 'text', ?, ?)",
+      "INSERT INTO messages (conversation_id, sender, kind, text, reply_to_id, created_at) VALUES (?, 'ai', 'text', ?, ?, ?)",
     );
     const insertPhoto = this.db.prepare(
-      `INSERT INTO messages (conversation_id, sender, kind, media_key, media_mime, media_width, media_height, photo_mode, created_at)
-       VALUES (?, 'ai', 'photo', ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO messages (conversation_id, sender, kind, media_key, media_mime, media_width, media_height, photo_mode, reply_to_id, created_at)
+       VALUES (?, 'ai', 'photo', ?, ?, ?, ?, ?, ?, ?)`,
     );
+    // Her first bubble can quote one of the visitor's messages; anything else she names is ignored.
+    const quoted = reply.replyTo
+      ? (rows.find((r) => r.sender === 'user' && messageRef(r.id) === reply.replyTo)?.id ?? null)
+      : null;
+    const quoteFor = (i: number) => (i === 0 ? quoted : null);
     const keyOf = this.db.prepare('SELECT media_key FROM messages WHERE id = ?');
     const markOpened = this.db.prepare('UPDATE messages SET view_count = view_count + 1 WHERE id = ?');
 
@@ -189,11 +204,11 @@ export class ReplyService {
         notBefore: pendingUntil > startedAt ? pendingUntil : 0,
       });
       const at = (i: number) => new Date(times[i]).toISOString();
-      texts.forEach((text, i) => insertText.run(conversationId, text, at(i)));
+      texts.forEach((text, i) => insertText.run(conversationId, text, quoteFor(i), at(i)));
       if (reply.photo && p) {
         // A photo set to always go out one way on the admin page overrides Alisa's choice.
         const mode = p.send_mode === 'auto' ? reply.photo.mode : p.send_mode;
-        insertPhoto.run(conversationId, p.media_key, p.media_mime, p.width, p.height, mode, at(texts.length));
+        insertPhoto.run(conversationId, p.media_key, p.media_mime, p.width, p.height, mode, quoteFor(texts.length), at(texts.length));
       }
     })();
     await Promise.all(toDelete.map((k) => this.media.remove(k).catch((err) => console.error('Delete failed', k, err))));
