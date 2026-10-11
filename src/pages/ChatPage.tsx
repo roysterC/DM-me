@@ -420,10 +420,11 @@ export function ChatPage() {
             label={ring === 'none' ? `About ${persona.name}` : `View ${persona.name}’s story`}
           />
         </div>
-        <button type="button" className="header-title" onClick={() => setInfo(true)}>
+        {/* Just a label: only the profile photo and the info button respond to taps. */}
+        <div className="header-title">
           <span className="header-name">{persona.name}</span>
           <span className="header-status">{typing ? 'typing…' : aiConnected ? 'Active now' : 'Offline'}</span>
-        </button>
+        </div>
         <button type="button" className="icon-btn" onClick={() => setInfo(true)} aria-label={`About ${persona.name}`}>
           <IconInfo size={26} />
         </button>

@@ -17,7 +17,8 @@
   --spent-line: #c7c7c7;
   /* The top and bottom bars: see-through, with the chat blurred behind. */
   --bar-bg: rgba(255, 255, 255, 0.72);
-  --header-bg: var(--bar-bg);
+  /* The top bar's backdrop: solid at the very top, fading to clear at its bottom edge. */
+  --header-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(255, 255, 255, 0.8) 100%);
   --quote-bg: #f2f2f2;
   --quote-fg: var(--muted);
   --quote-bar: #dbdbdb;
@@ -41,8 +42,8 @@
     --ring-seen: #4a4e55;
     --spent-line: #3a3e45;
     --bar-bg: rgba(12, 15, 20, 0.78);
-    /* The top bar darkens to black behind the status bar and fades into the chat below. */
-    --header-bg: linear-gradient(180deg, rgba(0, 0, 0, 0.94) 0%, rgba(6, 8, 11, 0.86) 55%, rgba(12, 15, 20, 0.62) 100%);
+    /* Black behind the status bar, shading into the chat colour as it fades out. */
+    --header-bg: linear-gradient(180deg, rgba(0, 0, 0, 0.96) 0%, rgba(8, 10, 14, 0.9) 50%, rgba(12, 15, 20, 0.8) 100%);
     --quote-bg: #181c21;
     --quote-fg: #939597;
     --quote-bar: #25282e;
@@ -257,13 +258,26 @@ a {
   padding-top: env(safe-area-inset-top);
   border-bottom: 0;
 }
-.chat-header.floating,
 .bottom-bar {
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
 }
-.chat-header.floating {
+/*
+ * The top bar's frosted backdrop fades out rather than ending in an edge: a layer behind the
+ * bar's content, reaching a little below it, whose tint and blur are both masked from solid at
+ * the top to clear at the bottom. It doesn't take taps.
+ */
+.chat-header.floating::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 -32px;
+  z-index: -1;
+  pointer-events: none;
   background: var(--header-bg);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 45%, rgba(0, 0, 0, 0.6) 70%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 45%, rgba(0, 0, 0, 0.6) 70%, transparent 100%);
 }
 /* Instagram's dark header buttons: a faint glass circle. */
 @media (prefers-color-scheme: dark) {
@@ -276,7 +290,6 @@ a {
   background: var(--bar-bg);
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .chat-header.floating,
   .bottom-bar {
     background: var(--bg);
   }
