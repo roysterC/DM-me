@@ -213,7 +213,8 @@ await shotPhone('17b-phone-story-loading');
 await storyLoading.waitFor({ state: 'detached', timeout: 10_000 });
 if ((await timerState()) !== 'running') throw new Error('The story timer should start once the photo shows');
 await tp.getByRole('button', { name: 'Close story' }).click();
-await tp.unroute('**/api/media/f**');
+// Preloads may still be waiting in the slowed route; drop them quietly.
+await tp.unrouteAll({ behavior: 'ignoreErrors' });
 
 step('phone: a long chat scrolls under the translucent bars, bubbles shade purple to blue');
 await tp.goto(base);
