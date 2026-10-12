@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { type AdminStoryDTO, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
+import { type AdminMeDTO, type AdminStoryDTO, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
 import type { Deps } from '../app';
 import type { LibraryPhotoRow, StoryRow } from '../db';
 import { nowIso } from '../db';
@@ -11,12 +11,17 @@ import { STORY_HOURS } from '../stories';
 const SEND_MODES: SendMode[] = ['auto', 'once', 'replay', 'keep'];
 
 /** Alisa's stories and camera roll, behind ADMIN_PASSWORD. */
-export function adminRoutes({ db, config, media, responder }: Deps) {
+export function adminRoutes({ db, config, media, responder, budget }: Deps) {
   const app = new Hono();
   const attempts = new RateLimiter(10, 10 * 60_000);
   const admin = (c: Parameters<typeof isAdmin>[0]) => isAdmin(c, config.secret, config.adminPassword);
 
-  app.get('/me', (c) => c.json({ enabled: !!config.adminPassword, admin: admin(c), storage: media.storage.kind }));
+  app.get('/me', (c) => {
+    const signedIn = admin(c);
+    const me: AdminMeDTO = { enabled: !!config.adminPassword, admin: signedIn, storage: media.storage.kind };
+    if (signedIn) me.spend = budget.today();
+    return c.json(me);
+  });
 
   app.post('/login', async (c) => {
     if (!config.adminPassword) return c.json({ error: 'Set ADMIN_PASSWORD on the server to use this page.' }, 403);

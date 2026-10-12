@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { type AdminStoryDTO, type LibraryPhotoDTO, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
+import { type AdminMeDTO, type AdminStoryDTO, type LibraryPhotoDTO, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { IconBack } from '../components/Icons';
 import { prepareImage } from '../lib/image';
@@ -10,7 +10,7 @@ const message = (err: unknown, fallback: string) => (err instanceof ApiError ? e
 
 /** Alisa's stories and camera roll, behind ADMIN_PASSWORD. */
 export function AdminPage() {
-  const [state, setState] = useState<{ enabled: boolean; admin: boolean; storage: 'local' | 's3' } | null>(null);
+  const [state, setState] = useState<AdminMeDTO | null>(null);
   const [tab, setTab] = useState<'photos' | 'stories'>('photos');
 
   const load = () =>
@@ -54,6 +54,7 @@ export function AdminPage() {
           <Unlock onDone={load} />
         ) : (
           <>
+            {state.spend && <Spend {...state.spend} />}
             <div className="mode-switch compact" role="tablist" aria-label="Section">
               {(['photos', 'stories'] as const).map((t) => (
                 <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? 'selected' : undefined} onClick={() => setTab(t)}>
@@ -66,6 +67,20 @@ export function AdminPage() {
         )}
       </div>
     </div>
+  );
+}
+
+const usd = (n: number) => `$${n < 10 ? n.toFixed(2) : n.toFixed(0)}`;
+
+/** What Claude has cost today against DAILY_BUDGET_USD. */
+function Spend({ calls, spentUsd, limitUsd }: NonNullable<AdminMeDTO['spend']>) {
+  const out = limitUsd > 0 && spentUsd >= limitUsd;
+  return (
+    <p className={`spend small${out ? ' out' : ''}`}>
+      Claude today: {usd(spentUsd)}
+      {limitUsd > 0 ? ` of ${usd(limitUsd)}` : ' (no daily limit)'} · {calls} {calls === 1 ? 'request' : 'requests'}
+      {out && ' · Alisa is done for the day (resets at midnight UTC)'}
+    </p>
   );
 }
 

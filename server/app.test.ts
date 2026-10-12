@@ -12,7 +12,14 @@ import { S3Storage } from './storage';
 const JPEG = new Uint8Array(fs.readFileSync(path.resolve('server/assets/skillet.jpg')));
 
 function setup(
-  opts: { connected?: boolean; adminPassword?: string; dailyReplyLimit?: number; typing?: number; clientDir?: string } = {},
+  opts: {
+    connected?: boolean;
+    adminPassword?: string;
+    dailyReplyLimit?: number;
+    dailyBudgetUsd?: number;
+    typing?: number;
+    clientDir?: string;
+  } = {},
 ) {
   const config = loadConfig({
     dataDir: ':memory:',
@@ -23,6 +30,7 @@ function setup(
     autoStories: true,
     seedSamplePhotos: true,
     dailyReplyLimit: opts.dailyReplyLimit ?? 200,
+    dailyBudgetUsd: opts.dailyBudgetUsd ?? 2,
     // Replies appear instantly unless a test is about their timing.
     typingCharsPerSecond: opts.typing ?? 0,
     ...(opts.clientDir ? { clientDir: opts.clientDir } : {}),
@@ -161,6 +169,38 @@ describe('chat', () => {
     expect((await me('POST', '/api/chat/reply', {})).status).toBe(200);
     await me('POST', '/api/chat/messages', { text: 'two' });
     expect((await me('POST', '/api/chat/reply', {})).status).toBe(429);
+  });
+
+  it('stops replying to everyone once the day’s Claude budget is spent', async () => {
+    const t = setup({ dailyBudgetUsd: 0.5, adminPassword: 'open sesame' });
+    const me = t.browser();
+    await me('POST', '/api/chat/messages', { text: 'one' });
+    expect((await me('POST', '/api/chat/reply', {})).status).toBe(200);
+
+    // A million output tokens on Haiku 5.5 is $0.50, the whole budget.
+    t.deps.budget.record('claude-haiku-5-5', { input_tokens: 0, output_tokens: 1_000_000 });
+    const other = t.browser();
+    await other('POST', '/api/chat/messages', { text: 'hello?' });
+    const res = await other('POST', '/api/chat/reply', {});
+    expect(res.status).toBe(429);
+    expect((await json<{ error: string }>(res)).error).toMatch(/done chatting for today/);
+    expect(t.fake.calls).toHaveLength(1);
+
+    const admin = t.browser();
+    expect((await json<{ spend?: unknown }>(await admin('GET', '/api/admin/me'))).spend).toBeUndefined();
+    await admin('POST', '/api/admin/login', { password: 'open sesame' });
+    const { spend } = await json<{ spend: { calls: number; spentUsd: number; limitUsd: number } }>(
+      await admin('GET', '/api/admin/me'),
+    );
+    expect(spend).toMatchObject({ calls: 1, spentUsd: 0.5, limitUsd: 0.5 });
+  });
+
+  it('has no site-wide limit when the budget is 0', async () => {
+    const t = setup({ dailyBudgetUsd: 0 });
+    t.deps.budget.record('claude-haiku-5-5', { input_tokens: 0, output_tokens: 100_000_000 });
+    const me = t.browser();
+    await me('POST', '/api/chat/messages', { text: 'hi' });
+    expect((await me('POST', '/api/chat/reply', {})).status).toBe(200);
   });
 
   it('lets the visitor heart Alisa’s messages, and Alisa heart theirs', async () => {

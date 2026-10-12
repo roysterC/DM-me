@@ -1,4 +1,5 @@
 import type {
+  AdminMeDTO,
   AdminStoryDTO,
   ChatDTO,
   LibraryPhotoDTO,
@@ -61,7 +62,7 @@ export const api = {
     request<{ message: MessageDTO }>('POST', `/api/stories/${id}/reply`, { text }),
 
   admin: {
-    me: () => request<{ enabled: boolean; admin: boolean; storage: 'local' | 's3' }>('GET', '/api/admin/me'),
+    me: () => request<AdminMeDTO>('GET', '/api/admin/me'),
     login: (password: string) => request<{ ok: true }>('POST', '/api/admin/login', { password }),
     logout: () => request<{ ok: true }>('POST', '/api/admin/logout'),
     stories: () => request<{ stories: AdminStoryDTO[] }>('GET', '/api/admin/stories'),

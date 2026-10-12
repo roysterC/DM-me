@@ -1427,6 +1427,13 @@ a {
   flex-direction: column;
   gap: 14px;
 }
+.spend {
+  margin: 0 0 12px;
+  color: var(--muted);
+}
+.spend.out {
+  color: #ff6b6b;
+}
 .mode-switch.compact {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   background: var(--field);

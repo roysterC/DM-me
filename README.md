@@ -67,6 +67,7 @@ Backblaze B2, AWS S3, Supabase Storage (its S3 endpoint) and MinIO work the same
 | `HOST` | `0.0.0.0` | Interface to listen on. `127.0.0.1` behind a reverse proxy. |
 | `DATA_DIR` | `./data` | SQLite database, and photos when no bucket is set. |
 | `DAILY_REPLY_LIMIT` | `200` | Alisa replies per visitor per day, to cap API spend on a public site. |
+| `DAILY_BUDGET_USD` | `2` | Most the whole site spends on Claude per day (UTC), in US dollars, however many visitors there are. Once it's spent, Alisa stops replying until midnight UTC. The admin page shows today's spend. `0` = no limit. |
 | `AUTO_STORIES` | on | Re-post four sample stories whenever none are live. `off` to disable. |
 | `SAMPLE_PHOTOS` | on | Start Alisa's camera roll with four sample photos. `off` to start empty. |
 | `PHOTO_SECONDS` | `5` | How long a view-once or replay photo stays on screen. |

@@ -80,6 +80,14 @@ export interface StoryDTO {
   liked: boolean;
 }
 
+export interface AdminMeDTO {
+  enabled: boolean;
+  admin: boolean;
+  storage: 'local' | 's3';
+  /** Today's Claude spend (UTC day); only for a signed-in admin. limitUsd 0 = no limit. */
+  spend?: { day: string; calls: number; spentUsd: number; limitUsd: number };
+}
+
 export interface AdminStoryDTO extends StoryDTO {
   active: boolean;
   views: number;

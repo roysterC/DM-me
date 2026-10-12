@@ -5,6 +5,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { secureHeaders } from 'hono/secure-headers';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { ClaudeResponder, FakeResponder, type Responder } from './ai/responder';
+import { Budget } from './budget';
 import { ReplyService } from './chat';
 import type { Config } from './config';
 import type { DB } from './db';
@@ -26,12 +27,13 @@ export interface Deps {
   /** Null when Claude isn't configured; the camera roll then describes photos by file name. */
   responder: Responder | null;
   aiConnected: boolean;
+  budget: Budget;
 }
 
-export function pickResponder(config: Config): Responder | null {
+export function pickResponder(config: Config, budget: Budget): Responder | null {
   if (config.fakeAi) return new FakeResponder();
   const hasKey = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-  return hasKey ? new ClaudeResponder(config.anthropicModel) : null;
+  return hasKey ? new ClaudeResponder(config.anthropicModel, budget) : null;
 }
 
 export function pickStorage(config: Config): Storage {
@@ -42,7 +44,8 @@ export function pickStorage(config: Config): Storage {
 export function createApp(db: DB, config: Config, responder: Responder | null, storage: Storage = pickStorage(config)) {
   const media = new MediaStore(storage, config.assetsDir, config.secret);
   const replies = new ReplyService(db, media, responder ?? new FakeResponder(), config.typingCharsPerSecond);
-  const deps: Deps = { db, config, media, replies, responder, aiConnected: responder !== null };
+  const budget = new Budget(db, config.dailyBudgetUsd);
+  const deps: Deps = { db, config, media, replies, responder, aiConnected: responder !== null, budget };
   seedLibrary(db, config.seedSamplePhotos);
   ensureStories(db, config.autoStories);
 

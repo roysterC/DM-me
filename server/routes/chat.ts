@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { ChatDTO, OpenPhotoDTO, PhotoMode } from '../../shared/types';
 import { PERSONA } from '../ai/persona';
-import { AiUnavailableError } from '../ai/responder';
+import { AiUnavailableError, DONE_FOR_TODAY } from '../ai/responder';
 import type { Deps } from '../app';
 import { conversationFor, getMessage, listMessages, maxViews, ownedUploads, splitDue, toMessageDTO } from '../chat';
 import type { MessageRow } from '../db';
@@ -13,7 +13,7 @@ import { activeStoryMap } from '../stories';
 const MAX_TEXT = 2000;
 const MODES: PhotoMode[] = ['keep', 'once', 'replay'];
 
-export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
+export function chatRoutes({ db, config, media, replies, aiConnected, budget }: Deps) {
   const app = new Hono<AppEnv>();
   const sendsPerVisitor = new RateLimiter(60, 60_000);
   const sendsPerIp = new RateLimiter(150, 60_000);
@@ -100,8 +100,9 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
     const used = db.prepare('SELECT count FROM reply_counts WHERE visitor_id = ? AND day = ?').get(visitor.id, day) as
       | { count: number }
       | undefined;
-    if ((used?.count ?? 0) >= config.dailyReplyLimit) {
-      return c.json({ error: 'Alisa’s done chatting for today. Come back tomorrow.' }, 429);
+    // Each visitor's own cap, then the whole site's Claude spend for the day.
+    if ((used?.count ?? 0) >= config.dailyReplyLimit || budget.exhausted()) {
+      return c.json({ error: DONE_FOR_TODAY }, 429);
     }
     try {
       const replied = await replies.replyTo(conversationId, timeZone);

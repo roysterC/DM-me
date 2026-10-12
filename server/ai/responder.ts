@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { PhotoMode } from '../../shared/types';
+import type { Budget } from '../budget';
 
 export interface PersonaReply {
   messages: string[];
@@ -48,6 +49,8 @@ export function replySchema(photoRefs: string[]) {
 
 export class AiUnavailableError extends Error {}
 
+export const DONE_FOR_TODAY = 'Alisa’s done chatting for today. Come back tomorrow.';
+
 export function parseReply(raw: string, photoRefs: string[]): PersonaReply {
   const data = JSON.parse(raw) as Record<string, unknown>;
   const messages = Array.isArray(data.messages)
@@ -73,14 +76,21 @@ const textOf = (content: Anthropic.ContentBlock[]) =>
 /**
  * Claude Haiku 5.5 at low effort: quick, cheap replies for chat. Haiku has no
  * server-side refusal fallback, so a declined request gets a short reply here.
+ * Every call is counted against the daily budget, and none is made once it's spent.
  */
 export class ClaudeResponder implements Responder {
-  private client = new Anthropic();
-  constructor(private model: string) {}
+  constructor(
+    private model: string,
+    private budget: Budget | null = null,
+    private client: Pick<Anthropic, 'messages'> = new Anthropic(),
+  ) {}
 
   private async call(params: Omit<Anthropic.MessageCreateParamsNonStreaming, 'model'>): Promise<Anthropic.Message> {
+    if (this.budget?.exhausted()) throw new AiUnavailableError(DONE_FOR_TODAY);
     try {
-      return await this.client.messages.create({ model: this.model, ...params });
+      const response = await this.client.messages.create({ model: this.model, ...params });
+      this.budget?.record(this.model, response.usage);
+      return response;
     } catch (err) {
       if (err instanceof Anthropic.AuthenticationError) {
         throw new AiUnavailableError('Alisa isn’t connected: the server’s ANTHROPIC_API_KEY was rejected.');

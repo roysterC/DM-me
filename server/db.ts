@@ -154,6 +154,18 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE messages ADD COLUMN context_seq INTEGER;
   `,
+  // What the site spent on Claude each UTC day, for DAILY_BUDGET_USD.
+  `
+  CREATE TABLE ai_usage (
+    day TEXT PRIMARY KEY,
+    calls INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cache_write_tokens INTEGER NOT NULL,
+    cache_read_tokens INTEGER NOT NULL,
+    cost_micro_usd INTEGER NOT NULL
+  );
+  `,
 ];
 
 export function openDb(dataDir: string): DB {
