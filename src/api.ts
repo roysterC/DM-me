@@ -1,4 +1,5 @@
 import type {
+  AdminMeDTO,
   AdminStoryDTO,
   ChatDTO,
   LibraryPhotoDTO,
@@ -54,6 +55,12 @@ export const api = {
   heart: (id: number, on: boolean) => request<{ message: MessageDTO }>('POST', `/api/chat/messages/${id}/heart`, { on }),
   openPhoto: (id: number) => request<OpenPhotoDTO>('POST', `/api/chat/messages/${id}/open`),
 
+  push: {
+    status: () => request<{ key: string; subscribed: boolean }>('GET', '/api/chat/push'),
+    subscribe: (subscription: PushSubscriptionJSON) => request<{ subscribed: boolean }>('POST', '/api/chat/push', subscription),
+    unsubscribe: (endpoint: string) => request<{ subscribed: boolean }>('DELETE', '/api/chat/push', { endpoint }),
+  },
+
   stories: () => request<{ stories: StoryDTO[] }>('GET', '/api/stories'),
   viewStory: (id: number) => request<{ ok: true }>('POST', `/api/stories/${id}/view`),
   likeStory: (id: number, on: boolean) => request<{ liked: boolean }>('POST', `/api/stories/${id}/like`, { on }),
@@ -61,7 +68,7 @@ export const api = {
     request<{ message: MessageDTO }>('POST', `/api/stories/${id}/reply`, { text }),
 
   admin: {
-    me: () => request<{ enabled: boolean; admin: boolean; storage: 'local' | 's3' }>('GET', '/api/admin/me'),
+    me: () => request<AdminMeDTO>('GET', '/api/admin/me'),
     login: (password: string) => request<{ ok: true }>('POST', '/api/admin/login', { password }),
     logout: () => request<{ ok: true }>('POST', '/api/admin/logout'),
     stories: () => request<{ stories: AdminStoryDTO[] }>('GET', '/api/admin/stories'),

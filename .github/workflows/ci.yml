@@ -1,0 +1,52 @@
+# Checks every pull request, and is the test step of each deploy (deploy.yml calls it), so main
+# only ever deploys code that passed typecheck, unit tests, the build and the browser walkthrough.
+# Actions are pinned to exact commits (the tag is in the comment), so a moved tag can't change
+# what runs here.
+name: CI
+
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Browser walkthrough
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: |
+          data=$(mktemp -d)
+          DATA_DIR=$data DM_ME_FAKE_AI=1 ADMIN_PASSWORD=letmein TYPING_SPEED=40 PORT=3456 HOST=127.0.0.1 \
+            npm start >"$RUNNER_TEMP/server.log" 2>&1 &
+          for _ in $(seq 1 30); do curl -fs http://127.0.0.1:3456/api/health >/dev/null && break; sleep 1; done
+          node scripts/e2e.mjs http://127.0.0.1:3456 test-results/screens
+
+      # Streams a database with Litestream while chatting, restores it and checks the copy,
+      # with the same script servers run daily against their real backups.
+      - name: Backup restore drill
+        run: scripts/backup-drill.sh
+
+      - name: Keep the screenshots and server log
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: e2e
+          path: |
+            test-results/screens
+            ${{ runner.temp }}/server.log
+          retention-days: 7

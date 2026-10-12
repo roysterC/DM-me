@@ -19,6 +19,16 @@ export type ThreadRow =
 
 const GAP_MS = 60 * 60 * 1000;
 
+/**
+ * The server's view of the chat plus what the visitor sent since (or is still sending). Only
+ * messages newer than the server's newest count as "since": the server sends the latest 500,
+ * so older ones that slid out of that window must not come back at the end.
+ */
+export function mergeServer(server: UiMessage[], local: UiMessage[]): UiMessage[] {
+  const newest = server.reduce((max, m) => Math.max(max, m.id), 0);
+  return [...server, ...local.filter((m) => m.pending || m.id > newest)];
+}
+
 export function buildThread(messages: UiMessage[], now = new Date()): ThreadRow[] {
   const rows: ThreadRow[] = [];
   const breakBefore = (i: number) =>

@@ -1,22 +1,20 @@
 import { Hono } from 'hono';
 import type { ChatDTO, OpenPhotoDTO, PhotoMode } from '../../shared/types';
 import { PERSONA } from '../ai/persona';
-import { AiUnavailableError } from '../ai/responder';
+import { AiUnavailableError, DONE_FOR_TODAY } from '../ai/responder';
 import type { Deps } from '../app';
 import { conversationFor, getMessage, listMessages, maxViews, ownedUploads, splitDue, toMessageDTO } from '../chat';
 import type { MessageRow } from '../db';
 import { nowIso } from '../db';
-import { type AppEnv, clientIp, RateLimiter } from '../identity';
-import { MediaError } from '../media';
+import { type AppEnv, clientHost, clientIp, isHttps, RateLimiter, SENDING_TOO_FAST } from '../identity';
+import { MAX_VISITOR_PHOTO_BYTES, MediaError } from '../media';
 import { activeStoryMap } from '../stories';
 
-const MAX_TEXT = 2000;
+export const MAX_TEXT = 2000;
 const MODES: PhotoMode[] = ['keep', 'once', 'replay'];
 
-export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
+export function chatRoutes({ db, config, media, replies, aiConnected, budget, sends, push }: Deps) {
   const app = new Hono<AppEnv>();
-  const sendsPerVisitor = new RateLimiter(60, 60_000);
-  const sendsPerIp = new RateLimiter(150, 60_000);
   const repliesPerVisitor = new RateLimiter(20, 60_000);
   const repliesPerIp = new RateLimiter(40, 60_000);
 
@@ -41,10 +39,11 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
     const row = getMessage(db, conversationId, id);
     return row && row.created_at <= nowIso() ? row.id : null;
   };
-  const canSend = (c: Parameters<typeof clientIp>[0], visitorId: number) =>
-    sendsPerVisitor.take(`v${visitorId}`) && sendsPerIp.take(clientIp(c));
 
-  app.get('/', async (c) => c.json(await chatState(conversationFor(db, c.get('visitor').id))));
+  app.get('/', async (c) => {
+    push.sawChat(c.get('visitor').id);
+    return c.json(await chatState(conversationFor(db, c.get('visitor').id)));
+  });
 
   app.post('/messages', async (c) => {
     const visitor = c.get('visitor');
@@ -52,7 +51,7 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
     const text = String(body.text ?? '').trim();
     if (!text) return c.json({ error: 'Message is empty.' }, 400);
     if (text.length > MAX_TEXT) return c.json({ error: `Messages can be up to ${MAX_TEXT} characters.` }, 400);
-    if (!canSend(c, visitor.id)) return c.json({ error: 'You’re sending messages too fast.' }, 429);
+    if (!sends.take(c, visitor.id)) return c.json({ error: SENDING_TOO_FAST }, 429);
     const conversationId = conversationFor(db, visitor.id);
     const { lastInsertRowid } = db
       .prepare(
@@ -64,13 +63,13 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
 
   app.post('/photos', async (c) => {
     const visitor = c.get('visitor');
-    if (!canSend(c, visitor.id)) return c.json({ error: 'You’re sending messages too fast.' }, 429);
+    if (!sends.take(c, visitor.id)) return c.json({ error: SENDING_TOO_FAST }, 429);
     const form = await c.req.parseBody();
     if (!(form.photo instanceof File)) return c.json({ error: 'No photo attached.' }, 400);
     const mode = (MODES as string[]).includes(String(form.mode)) ? (String(form.mode) as PhotoMode) : 'keep';
     let saved;
     try {
-      saved = await media.saveFile('uploads', form.photo);
+      saved = await media.saveFile('uploads', form.photo, MAX_VISITOR_PHOTO_BYTES);
     } catch (err) {
       if (err instanceof MediaError) return c.json({ error: err.message }, 400);
       throw err;
@@ -100,12 +99,18 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
     const used = db.prepare('SELECT count FROM reply_counts WHERE visitor_id = ? AND day = ?').get(visitor.id, day) as
       | { count: number }
       | undefined;
-    if ((used?.count ?? 0) >= config.dailyReplyLimit) {
-      return c.json({ error: 'Alisa’s done chatting for today. Come back tomorrow.' }, 429);
+    // Each visitor's own cap, then the whole site's Claude spend for the day.
+    if ((used?.count ?? 0) >= config.dailyReplyLimit || budget.exhausted()) {
+      return c.json({ error: DONE_FOR_TODAY }, 429);
     }
     try {
+      const lastBefore = (db.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE conversation_id = ?').get(conversationId) as {
+        id: number;
+      }).id;
       const replied = await replies.replyTo(conversationId, timeZone);
       if (replied) {
+        // If they close the chat while she's "typing", their devices hear about it.
+        push.afterReply(visitor.id, conversationId, lastBefore, PERSONA.name);
         db.prepare(
           `INSERT INTO reply_counts (visitor_id, day, count) VALUES (?, ?, 1)
            ON CONFLICT (visitor_id, day) DO UPDATE SET count = count + 1`,
@@ -116,6 +121,8 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
       console.error('Alisa reply failed', err);
       return c.json({ error: 'Alisa couldn’t reply. Try again.' }, 502);
     }
+    // The bubbles due already go back with this answer (all of them, with replies shown instantly).
+    push.sawChat(visitor.id);
     return c.json(await chatState(conversationId));
   });
 
@@ -126,6 +133,32 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
     if (!row || row.sender !== 'ai') return c.json({ error: 'Message not found.' }, 404);
     db.prepare('UPDATE messages SET heart_by_user = ? WHERE id = ?').run(body.on ? 1 : 0, row.id);
     return c.json({ message: await messageDTO(getMessage(db, conversationId, row.id)!) });
+  });
+
+  // "Notify me when Alisa replies": the key browsers subscribe with, and the subscriptions.
+  app.get('/push', (c) => c.json({ key: push.keys.publicKey, subscribed: push.subscribed(c.get('visitor').id) }));
+
+  app.post('/push', async (c) => {
+    const body = await c.req.json<{ endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } }>().catch(() => ({}) as never);
+    const { endpoint, keys } = body;
+    const valid =
+      typeof endpoint === 'string' &&
+      /^https:\/\//.test(endpoint) &&
+      endpoint.length < 1000 &&
+      typeof keys?.p256dh === 'string' &&
+      typeof keys.auth === 'string' &&
+      keys.p256dh.length < 200 &&
+      keys.auth.length < 100;
+    if (!valid) return c.json({ error: 'That isn’t a push subscription.' }, 400);
+    const origin = `${isHttps(c) ? 'https' : 'http'}://${clientHost(c) ?? 'localhost'}`;
+    push.subscribe(c.get('visitor').id, { endpoint, keys: { p256dh: keys.p256dh as string, auth: keys.auth as string } }, origin);
+    return c.json({ subscribed: true });
+  });
+
+  app.delete('/push', async (c) => {
+    const body = await c.req.json<{ endpoint?: unknown }>().catch(() => ({}) as never);
+    if (typeof body.endpoint === 'string') push.unsubscribe(c.get('visitor').id, body.endpoint);
+    return c.json({ subscribed: push.subscribed(c.get('visitor').id) });
   });
 
   // Opening a view-once or replay photo Alisa sent. Each open uses up one view.
@@ -154,6 +187,7 @@ export function chatRoutes({ db, config, media, replies, aiConnected }: Deps) {
   app.delete('/', async (c) => {
     const conversationId = conversationFor(db, c.get('visitor').id);
     const uploads = ownedUploads(listMessages(db, conversationId, 1_000_000));
+    replies.drop(conversationId);
     db.prepare('DELETE FROM conversations WHERE id = ?').run(conversationId);
     await Promise.all(uploads.map((k) => media.remove(k).catch(() => {})));
     return c.json(await chatState(conversationFor(db, c.get('visitor').id)));

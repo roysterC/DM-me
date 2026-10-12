@@ -5,12 +5,15 @@ import { bodyLimit } from 'hono/body-limit';
 import { secureHeaders } from 'hono/secure-headers';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { ClaudeResponder, FakeResponder, type Responder } from './ai/responder';
+import { Budget } from './budget';
 import { ReplyService } from './chat';
 import type { Config } from './config';
 import type { DB } from './db';
-import { type AppEnv, sameOrigin, visitor } from './identity';
+import { type AppEnv, clientInfo, ProxyTrust, sameOrigin, SendLimiter, visitor } from './identity';
 import { seedLibrary } from './library';
-import { MAX_UPLOAD_BYTES, MediaStore } from './media';
+import { PHOTOS_PER_UPLOAD } from '../shared/types';
+import { MAX_UPLOAD_BYTES, MAX_VISITOR_PHOTO_BYTES, MediaStore } from './media';
+import { loadPushKeys, type PushSend, PushService } from './push';
 import { adminRoutes } from './routes/admin';
 import { chatRoutes } from './routes/chat';
 import { mediaRoutes } from './routes/media';
@@ -26,23 +29,58 @@ export interface Deps {
   /** Null when Claude isn't configured; the camera roll then describes photos by file name. */
   responder: Responder | null;
   aiConnected: boolean;
+  budget: Budget;
+  sends: SendLimiter;
+  push: PushService;
 }
 
-export function pickResponder(config: Config): Responder | null {
+export function pickResponder(config: Config, budget: Budget): Responder | null {
   if (config.fakeAi) return new FakeResponder();
   const hasKey = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-  return hasKey ? new ClaudeResponder(config.anthropicModel) : null;
+  return hasKey ? new ClaudeResponder(config.anthropicModel, budget) : null;
 }
+
+const KB = 1024;
+/** Room for a photo's form fields and multipart framing. */
+const FORM_OVERHEAD = 64 * KB;
+/**
+ * Request bodies are read into memory whole, so each route accepts only what it needs: photo
+ * uploads get room for their photos, and everything else (small JSON) gets JSON_BODY_BYTES.
+ */
+const JSON_BODY_BYTES = 64 * KB;
+const UPLOAD_BODY_BYTES: Record<string, number> = {
+  '/api/chat/photos': MAX_VISITOR_PHOTO_BYTES + FORM_OVERHEAD,
+  '/api/admin/stories': MAX_UPLOAD_BYTES + FORM_OVERHEAD,
+  '/api/admin/photos': PHOTOS_PER_UPLOAD * MAX_UPLOAD_BYTES + FORM_OVERHEAD,
+};
 
 export function pickStorage(config: Config): Storage {
   if (config.s3) return new S3Storage(config.s3);
   return new LocalStorage(config.dataDir === ':memory:' ? fs.mkdtempSync('/tmp/dmme-media-') : path.join(config.dataDir, 'media'));
 }
 
-export function createApp(db: DB, config: Config, responder: Responder | null, storage: Storage = pickStorage(config)) {
+export function createApp(
+  db: DB,
+  config: Config,
+  responder: Responder | null,
+  storage: Storage = pickStorage(config),
+  /** Tests swap in their own push delivery and a shorter wait. */
+  pushOptions: { send?: PushSend; graceMs?: number } = {},
+) {
   const media = new MediaStore(storage, config.assetsDir, config.secret);
   const replies = new ReplyService(db, media, responder ?? new FakeResponder(), config.typingCharsPerSecond);
-  const deps: Deps = { db, config, media, replies, responder, aiConnected: responder !== null };
+  const budget = new Budget(db, config.dailyBudgetUsd);
+  const deps: Deps = {
+    db,
+    config,
+    media,
+    replies,
+    responder,
+    aiConnected: responder !== null,
+    budget,
+    sends: new SendLimiter(),
+    push: new PushService(db, loadPushKeys(config.secret), pushOptions.send, pushOptions.graceMs),
+  };
   seedLibrary(db, config.seedSamplePhotos);
   ensureStories(db, config.autoStories);
 
@@ -52,6 +90,7 @@ export function createApp(db: DB, config: Config, responder: Responder | null, s
     : [];
 
   const app = new Hono();
+  app.use('*', clientInfo(new ProxyTrust(config.trustProxy)));
   app.use(
     '*',
     secureHeaders({
@@ -68,21 +107,39 @@ export function createApp(db: DB, config: Config, responder: Responder | null, s
     }),
   );
   app.use('/api/*', sameOrigin());
-  app.use(
-    '/api/*',
-    bodyLimit({
-      maxSize: 20 * MAX_UPLOAD_BYTES,
-      onError: (c) => c.json({ error: 'That upload is too large.' }, 413),
-    }),
+  const jsonLimit = bodyLimit({
+    maxSize: JSON_BODY_BYTES,
+    onError: (c) => c.json({ error: 'That’s too much to send at once.' }, 413),
+  });
+  const uploadLimits = new Map(
+    Object.entries(UPLOAD_BODY_BYTES).map(([route, maxSize]) => [
+      route,
+      bodyLimit({ maxSize, onError: (c) => c.json({ error: 'That photo is too large.' }, 413) }),
+    ]),
   );
+  app.use('/api/*', (c, next) => ((c.req.method === 'POST' && uploadLimits.get(c.req.path)) || jsonLimit)(c, next));
 
   const visitorApi = new Hono<AppEnv>();
   visitorApi.use('*', visitor(db));
   visitorApi.route('/chat', chatRoutes(deps));
   visitorApi.route('/stories', storyRoutes(deps));
 
-  // Lets deploy scripts confirm it's DM-me answering on the port, not some other program.
-  app.get('/api/health', (c) => c.json({ app: 'dm-me', ok: true }));
+  // Lets deploys confirm it's DM-me answering on the port, and that it can really serve: the
+  // database answers and, in production, the built web app is there. A 503 makes the deploy
+  // roll back to the previous version.
+  const indexFile = path.join(config.clientDir, 'index.html');
+  app.get('/api/health', (c) => {
+    const problems: string[] = [];
+    try {
+      db.prepare('SELECT 1').get();
+    } catch {
+      problems.push('database');
+    }
+    if (process.env.NODE_ENV === 'production' && !fs.existsSync(indexFile)) problems.push('web app files');
+    return problems.length
+      ? c.json({ app: 'dm-me', ok: false, problems }, 503)
+      : c.json({ app: 'dm-me', ok: true });
+  });
   app.route('/api/media', mediaRoutes(deps));
   app.route('/api/admin', adminRoutes(deps));
   app.route('/api', visitorApi);
@@ -94,7 +151,6 @@ export function createApp(db: DB, config: Config, responder: Responder | null, s
   });
 
   // In production the server also hands out the built web app.
-  const indexFile = path.join(config.clientDir, 'index.html');
   if (fs.existsSync(indexFile)) {
     const root = path.relative(process.cwd(), config.clientDir);
     app.use(

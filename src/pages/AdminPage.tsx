@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { type AdminStoryDTO, type LibraryPhotoDTO, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
+import { type AdminMeDTO, type AdminStoryDTO, type LibraryPhotoDTO, PHOTOS_PER_UPLOAD, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { IconBack } from '../components/Icons';
 import { prepareImage } from '../lib/image';
@@ -10,7 +10,7 @@ const message = (err: unknown, fallback: string) => (err instanceof ApiError ? e
 
 /** Alisa's stories and camera roll, behind ADMIN_PASSWORD. */
 export function AdminPage() {
-  const [state, setState] = useState<{ enabled: boolean; admin: boolean; storage: 'local' | 's3' } | null>(null);
+  const [state, setState] = useState<AdminMeDTO | null>(null);
   const [tab, setTab] = useState<'photos' | 'stories'>('photos');
 
   const load = () =>
@@ -54,6 +54,8 @@ export function AdminPage() {
           <Unlock onDone={load} />
         ) : (
           <>
+            {state.spend && <Spend {...state.spend} />}
+            {state.backup && <BackupStatus {...state.backup} />}
             <div className="mode-switch compact" role="tablist" aria-label="Section">
               {(['photos', 'stories'] as const).map((t) => (
                 <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? 'selected' : undefined} onClick={() => setTab(t)}>
@@ -66,6 +68,32 @@ export function AdminPage() {
         )}
       </div>
     </div>
+  );
+}
+
+const usd = (n: number) => `$${n < 10 ? n.toFixed(2) : n.toFixed(0)}`;
+
+/** What Claude has cost today against DAILY_BUDGET_USD. */
+function Spend({ calls, spentUsd, limitUsd }: NonNullable<AdminMeDTO['spend']>) {
+  const out = limitUsd > 0 && spentUsd >= limitUsd;
+  return (
+    <p className={`spend small${out ? ' out' : ''}`}>
+      Claude today: {usd(spentUsd)}
+      {limitUsd > 0 ? ` of ${usd(limitUsd)}` : ' (no daily limit)'} · {calls} {calls === 1 ? 'request' : 'requests'}
+      {out && ' · Alisa is done for the day (resets at midnight UTC)'}
+    </p>
+  );
+}
+
+/** The daily restore drill: whether the latest backup restores, and how fresh it is. */
+function BackupStatus({ checkedAt, ok, message }: NonNullable<AdminMeDTO['backup']>) {
+  const stale = Date.now() - Date.parse(checkedAt) > 2 * 86_400_000;
+  const age = shortAge(checkedAt);
+  return (
+    <p className={`spend small${ok && !stale ? '' : ' out'}`}>
+      Backups: {message} Checked {age === 'now' ? 'just now' : `${age} ago`}.
+      {stale && ' The daily check hasn’t run since: see journalctl -u dm-me-backup-check.'}
+    </p>
   );
 }
 
@@ -129,15 +157,22 @@ function CameraRoll({ storage }: { storage: 'local' | 's3' }) {
     setBusy(files.length > 1 ? `Uploading and describing ${files.length} photos…` : 'Uploading…');
     setError(null);
     setNote(null);
+    let added = 0;
     try {
       const blobs = await Promise.all(files.map(async (f) => (await prepareImage(f)).blob));
-      await api.admin.addPhotos(blobs, files.length === 1 ? description : '');
+      // A few photos per request, so the server never holds a large upload in memory.
+      for (; added < blobs.length; added += PHOTOS_PER_UPLOAD) {
+        if (added > 0) setBusy(`Uploading and describing photos… ${added} of ${blobs.length} done`);
+        await api.admin.addPhotos(blobs.slice(added, added + PHOTOS_PER_UPLOAD), files.length === 1 ? description : '');
+      }
       setFiles([]);
       setDescription('');
       (e.target as HTMLFormElement).reset();
       await load();
     } catch (err) {
       setError(message(err, 'Upload failed.'));
+      // Photos in earlier requests (or earlier in this one) may have been added.
+      await load();
     } finally {
       setBusy(null);
     }
@@ -224,21 +259,37 @@ function PhotoRow({ photo, onChanged }: { photo: LibraryPhotoDTO; onChanged: () 
   const [text, setText] = useState(photo.description);
   const [saving, setSaving] = useState(false);
   const [sendMode, setSendMode] = useState(photo.sendMode);
+  const [error, setError] = useState<string | null>(null);
   const changeMode = async (mode: SendMode) => {
     setSendMode(mode);
-    await api.admin.setSendMode(photo.id, mode).catch(() => setSendMode(photo.sendMode));
+    setError(null);
+    await api.admin.setSendMode(photo.id, mode).catch((err) => {
+      setSendMode(photo.sendMode);
+      setError(message(err, 'Couldn’t change how it sends.'));
+    });
   };
   const dirty = text.trim() !== photo.description;
   const save = async () => {
     setSaving(true);
-    await api.admin.describePhoto(photo.id, text).catch(() => {});
-    setSaving(false);
-    onChanged();
+    setError(null);
+    try {
+      await api.admin.describePhoto(photo.id, text);
+      onChanged();
+    } catch (err) {
+      setError(message(err, 'Couldn’t save the description.'));
+    } finally {
+      setSaving(false);
+    }
   };
   const remove = async () => {
     if (!confirm('Remove this photo from Alisa’s camera roll?')) return;
-    await api.admin.removePhoto(photo.id).catch(() => {});
-    onChanged();
+    setError(null);
+    try {
+      await api.admin.removePhoto(photo.id);
+      onChanged();
+    } catch (err) {
+      setError(message(err, 'Couldn’t remove the photo.'));
+    }
   };
   return (
     <li>
@@ -266,6 +317,11 @@ function PhotoRow({ photo, onChanged }: { photo: LibraryPhotoDTO; onChanged: () 
             </button>
           )}
         </span>
+        {error && (
+          <span className="form-error small" role="alert">
+            {error}
+          </span>
+        )}
       </div>
       <button type="button" className="text-btn danger" onClick={remove}>
         Remove

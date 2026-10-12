@@ -10,6 +10,7 @@ What visitors can do:
 - **Send photos.** Take one with the camera or pick one from the library, then choose **View once**, **Allow replay** or **Keep in chat**. Alisa looks at the photo and responds to what's in it. A view-once photo is shown to Alisa once and then deleted.
 - **Get photos from Alisa.** Alisa can send photos from her camera roll as view-once, replay or kept photos. She picks the mode herself (a quick pic or selfie tends to disappear, a recipe stays), unless you've set the photo to always go out one way on the admin page. Tap to view: the photo opens full screen for 5 seconds, then the bubble changes to "Tap to replay" or "Opened". The server enforces the limit.
 - **Watch stories.** Alisa's avatar gets the story ring when there's something new. Tap left or right to move, hold to pause, heart a story, or reply (the reply lands in the chat as "You replied to their story"). Stories expire after 24 hours.
+- **Get notified.** In Alisa's profile, "Notify me when Alisa replies" sends a notification when her reply lands while the chat is closed (say, you put your phone away while she was typing). On iPhone this needs the site on the Home Screen first (Share, then Add to Home Screen); the profile says so. She only starts a reply while the chat is open, so a message sent right before closing gets its answer the next time it's opened.
 - **Delete the chat** from Alisa's profile sheet, which also deletes the photos they sent.
 
 What you (the owner) can do at **`/admin`**, unlocked with `ADMIN_PASSWORD`:
@@ -61,17 +62,20 @@ Backblaze B2, AWS S3, Supabase Storage (its S3 endpoint) and MinIO work the same
 |---|---|---|
 | `ANTHROPIC_API_KEY` | none | Required for Alisa to reply. |
 | `ANTHROPIC_MODEL` | `claude-haiku-5-5` | The Claude model Alisa uses. |
-| `ADMIN_PASSWORD` | none | Unlocks `/admin`. Without it the admin page is off. |
+| `ADMIN_PASSWORD` | none | Unlocks `/admin`. Without it the admin page is off. A sign-in lasts 30 days; changing the password (and restarting) signs every browser out. |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | none | Photo storage bucket (above). `S3_PATH_STYLE=false` for providers that need `bucket.endpoint` URLs. |
 | `PORT` | `3000` | Port for `npm start`. |
 | `HOST` | `0.0.0.0` | Interface to listen on. `127.0.0.1` behind a reverse proxy. |
+| `TRUST_PROXY` | `loopback` | Which connections may say who the visitor is (`X-Forwarded-For`, `-Proto`, `-Host`), as used by rate limits and secure cookies. The default trusts a proxy on the same machine, like the Caddy that `deploy/setup.sh` sets up. A proxy elsewhere (say, in another Docker container): list its addresses or ranges, e.g. `loopback,172.16.0.0/12`. `off` trusts none. Headers from anyone else are ignored, so they can't dodge the per-IP limits. |
 | `DATA_DIR` | `./data` | SQLite database, and photos when no bucket is set. |
 | `DAILY_REPLY_LIMIT` | `200` | Alisa replies per visitor per day, to cap API spend on a public site. |
-| `AUTO_STORIES` | on | Re-post four sample stories whenever none are live. `off` to disable. |
+| `DAILY_BUDGET_USD` | `2` | Most the whole site spends on Claude per day (UTC), in US dollars, however many visitors there are. Once it's spent, Alisa stops replying until midnight UTC. The admin page shows today's spend. `0` = no limit. |
+| `AUTO_STORIES` | on | Alisa posts her own stories: with Claude connected, she writes two or three each day (captions in her voice, photos from her camera roll) about an hour before the live ones run out, counted in the daily budget. Whenever none are live, four sample stories fill in. Stories you post from `/admin` count as live, so hers wait for yours. `off` to disable both. |
 | `SAMPLE_PHOTOS` | on | Start Alisa's camera roll with four sample photos. `off` to start empty. |
 | `PHOTO_SECONDS` | `5` | How long a view-once or replay photo stays on screen. |
 | `TYPING_SPEED` | `7` | How fast Alisa "types", in characters per second. Each bubble appears after roughly its length divided by this, ±25%, capped at 20 seconds. Higher is snappier; `0` shows replies as soon as they're ready. |
-| `SECRET` | generated | Signs cookies and photo links. Generated into `DATA_DIR/secret.key` if unset. |
+| `SECRET` | generated | Signs cookies and photo links, and the keys for notifications are derived from it (so changing it ends every device's notifications until they're turned on again). Generated into `DATA_DIR/secret.key` if unset. |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | from `SECRET` | Your own keys for notifications, if you'd rather not derive them (`npx web-push generate-vapid-keys`). |
 | `DM_ME_FAKE_AI` | off | `1` replaces Claude with canned replies, for tests and demos. |
 
 ## Deploy
@@ -94,7 +98,7 @@ docker run -p 3000:3000 -v dm-me-data:/data --env-file .env dm-me
 
 Wherever it runs:
 
-- Put it behind **HTTPS**. Browsers only allow the camera on HTTPS, and cookies are marked secure when the request arrives over HTTPS, including behind a proxy that sets `X-Forwarded-Proto`. Set `HOST=127.0.0.1` so only the proxy can reach the app.
+- Put it behind **HTTPS**. Browsers only allow the camera on HTTPS, and cookies are marked secure when the request arrives over HTTPS, including behind a proxy that sets `X-Forwarded-Proto`. Set `HOST=127.0.0.1` so only the proxy can reach the app. If the proxy connects from another address (a separate container, another machine), set `TRUST_PROXY` to it, or every visitor counts as the proxy's address for rate limits.
 - Run **one server process**. Rate limits and the one-reply-at-a-time lock are kept in memory, and the database is a local SQLite file, so serverless hosts (Vercel, Cloudflare Workers) need changes first.
 - **Back up the database** (`DATA_DIR/dm-me.sqlite`). The VPS setup does this for you.
 
@@ -109,11 +113,13 @@ DATA_DIR=/tmp/dmme-e2e DM_ME_FAKE_AI=1 ADMIN_PASSWORD=letmein PORT=3456 npm star
 node scripts/e2e.mjs http://localhost:3456 test-results/screens
 ```
 
+GitHub runs all of these on every pull request (`.github/workflows/ci.yml`), and again on each commit to `main` before deploying it.
+
 ## How it's built
 
 ```
 server/            Hono API on Node, SQLite via better-sqlite3
-  ai/persona.ts    Alisa's persona, system prompt, sample photos and stories
+  ai/persona.ts    Alisa's persona, system prompt, the prompt for her daily stories, sample photos and stories
   ai/context.ts    turns chat history into a Claude conversation (text, images, Alisa's past replies)
   ai/responder.ts  the Claude calls (replies and photo descriptions), plus the fake used in tests
   chat.ts          reply flow: one reply per conversation at a time, view-once bookkeeping
@@ -121,12 +127,18 @@ server/            Hono API on Node, SQLite via better-sqlite3
   storage.ts       S3-compatible bucket client (signed requests and links) and local-disk storage
   media.ts         photo validation, signed links, small in-memory cache
   identity.ts      visitor cookie, admin password, rate limits
+  budget.ts        what Claude costs per day, for DAILY_BUDGET_USD
+  cleanup.ts       forgets visitors who never wrote, chats whose cookie has expired, and old stories
+  push.ts          "Alisa replied" notifications (web push), when the chat isn't open
   routes/          chat, stories, media, admin
   assets/          sample photos
 src/               React web app (Vite)
-  pages/ChatPage   the conversation screen
+  pages/ChatPage   the conversation screen (layout and overlays)
+  lib/useChat      the chat's data: sending, Alisa's reply timing and "typing…", stories
+  lib/useChatScroll  stays at the newest message unless you're reading further up
   pages/AdminPage  camera roll and stories
-  components/      message bubbles, camera, send-photo sheet, photo and story viewers
+  components/      message bubbles, composer, camera, send-photo sheet, photo and story viewers
+  styles/          base, chat, overlays and admin styles (app.css imports them in order)
 shared/types.ts    API shapes used by both sides
 ```
 
@@ -134,14 +146,17 @@ How Alisa replies:
 
 - Each reply is one call to **Claude Haiku 5.5** at `low` effort, which is fast and cheap for chat: $0.10 per million input tokens and $0.50 per million output, so a typical reply costs a small fraction of a cent. The answer comes back as structured JSON: the bubbles to send, whether to heart the visitor's last message, and optionally a camera-roll photo and how to send it.
 - The conversation is sent each time, with each visitor message stamped in their time zone so Alisa knows when "tonight" is. The persona prompt and earlier messages are prompt-cached.
-- Kept photos are re-sent as images (up to the 12 most recent). A view-once photo is included only in the turn Alisa first sees it; after that she gets a note saying she already viewed it.
+- Long chats: Alisa sees the latest 80 to 120 messages word for word. Once more than 120 follow what she remembers, the oldest are condensed (one extra Haiku call, in the background, counted in the daily budget) into a short memory of who the visitor is and what you've talked about, which starts her history from then on. The window moves in steps like this, rather than one message per reply, so the cached history stays valid.
+- Kept photos are re-sent as images (up to the 12 most recent, 15 MB in all). A view-once photo is included only in the turn Alisa first sees it; she notes what it showed, and after that sees that note in its place.
 - Alisa is told about the newest 150 photos in her camera roll.
 - If Claude declines a message for safety reasons, Alisa answers "I can't help with that one." (Haiku has no automatic retry on another model.)
 
 Privacy and safety:
 
 - No accounts or passwords for visitors. The visitor cookie is random and stored only as a hash. Clearing cookies starts a fresh chat.
-- Rate limits per visitor and per IP address, plus the daily reply cap.
+- The cookie lasts 400 days from the latest visit. Every 6 hours the server forgets visitors who never sent a message and haven't been back for 30 days, and deletes chats (with the photos sent in them) whose cookie has expired, since nobody can open them any more. Stories are deleted, with their photos, 30 days after they expire; chats keep their own copy of any story someone replied to.
+- Rate limits per visitor and per IP address, plus the daily reply cap and the site-wide daily Claude budget.
+- Size limits on every request, since bodies are read into memory: 64 KB for messages and other JSON, 5 MB for a photo a visitor sends, and 10 MB per photo on the admin page (up to 5 photos per request; the page sends larger selections in turns).
 - Uploads are checked by their actual bytes (JPEG, PNG, WebP, GIF only). Photos are only reachable through signed links that expire; view-once links last a minute.
 - The browser re-encodes photos to JPEG at most 1568px on the long edge before upload, which also strips location metadata.
 - A web page can't stop screenshots, so "view once" limits opening, not copying.

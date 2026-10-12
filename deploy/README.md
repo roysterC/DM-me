@@ -86,11 +86,29 @@ After you merge changes on GitHub:
 sudo /opt/dm-me/deploy/update.sh
 ```
 
-This pulls the code, rebuilds, and restarts the app. The site is unavailable for a few seconds during the restart. If the new version fails to start, the script prints the two commands that put the previous version back.
+This pulls the code and builds it in its own folder under `/opt/dm-me-releases`, while the site keeps running the current version. It then switches over and restarts, so the site is unavailable for a few seconds. Finally it checks that the new version answers, with a working database and web app.
+
+- **If the build fails** (out of memory, a broken dependency), nothing changes on the live site.
+- **If the new version doesn't come up,** it switches straight back to the previous one and says so.
+
+Only one update runs at a time; a second one waits for the first.
+
+**Going back to an earlier version by hand:** list the releases with `ls /opt/dm-me-releases`, then point `current` at one and restart:
+
+```bash
+sudo ln -sfn /opt/dm-me-releases/<release> /opt/dm-me-releases/current && sudo systemctl restart dm-me
+```
+
+The setup keeps the newest three releases. Rolling back doesn't undo database changes the newer version made; they only ever add columns and tables, which older versions ignore.
 
 ## Deploy automatically on every push
 
-`.github/workflows/deploy.yml` tests every push to `main` (type check, unit tests, build). If they pass, it logs in to the server and runs `deploy/update.sh`. A failed test or a failed deploy shows as a red run under the repository's **Actions** tab, and the version that was running stays up.
+`.github/workflows/deploy.yml` tests every push to `main` (type check, unit tests, build). If they pass, it logs in to the server and runs `deploy/update.sh` for **exactly the commit it tested**.
+
+- If more commits reached `main` in the meantime, they wait for their own run.
+- An older commit never replaces a newer one that's already live.
+
+A failed test or a failed deploy shows as a red run under the repository's **Actions** tab, and the version that was running stays up (see [Updating](#updating)).
 
 **One-time setup:**
 
@@ -137,6 +155,8 @@ sudo systemctl start dm-me dm-me-backup
 
 Litestream keeps short-term history and compacts it over time, so recent points restore most precisely.
 
+**Checking the backups work.** Once a day, `dm-me-backup-check.timer` restores the latest backup from the bucket into a scratch file, checks it's intact, and compares it with the live database. The admin page shows the result ("Backups: the latest backup restores cleanly…"), in red if the restore failed or the backup is more than 30 minutes behind the live chats (Litestream stuck, or the bucket rejecting it). To run it now: `sudo systemctl start dm-me-backup-check && journalctl -u dm-me-backup-check -n 20`.
+
 ## Troubleshooting
 
 - **The site doesn't load over HTTPS.** Check that the domain resolves to this server (`dig +short your-domain`) and that ports 80 and 443 are open. Caddy's log explains certificate problems: `journalctl -u caddy -n 50`.
@@ -159,10 +179,11 @@ Litestream keeps short-term history and compacts it over time, so recent points 
 
 | Path | What it is |
 |---|---|
-| `/opt/dm-me` | The code and the built app (owned by root; the app can't modify it) |
+| `/opt/dm-me` | The code (a git checkout; owned by root) |
+| `/opt/dm-me-releases` | One built copy of the app per deployed version; `current` points at the running one (the app can't modify any of it) |
 | `/etc/dm-me/dm-me.env` | Your settings and keys (readable by root only) |
 | `/etc/dm-me/litestream.yml` | Backup settings |
 | `/var/lib/dm-me` | The database (the only folder the app can write to) |
-| `/etc/systemd/system/dm-me.service`, `dm-me-backup.service` | The app and backup services, running as the `dmme` user |
+| `/etc/systemd/system/dm-me.service`, `dm-me-backup.service`, `dm-me-backup-check.timer` | The app, backup and daily backup-check services, running as the `dmme` user |
 | `/etc/sudoers.d/dm-me-deploy` | Only with automatic deploys: lets the `dm-me-deploy` user run `deploy/update.sh` |
 | `/etc/caddy/sites/dm-me.caddy` | The HTTPS site, imported by one line at the end of your Caddyfile. Your own Caddy sites are left alone |

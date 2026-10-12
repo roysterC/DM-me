@@ -1,5 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { Hono } from 'hono';
-import { type AdminStoryDTO, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
+import { type AdminMeDTO, type AdminStoryDTO, PHOTOS_PER_UPLOAD, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
 import type { Deps } from '../app';
 import type { LibraryPhotoRow, StoryRow } from '../db';
 import { nowIso } from '../db';
@@ -10,13 +12,31 @@ import { STORY_HOURS } from '../stories';
 
 const SEND_MODES: SendMode[] = ['auto', 'once', 'replay', 'keep'];
 
+/** What the daily backup check last found (deploy/backup-check.sh writes it), if it runs here. */
+function backupCheck(dataDir: string): AdminMeDTO['backup'] {
+  try {
+    const { checkedAt, ok, message } = JSON.parse(fs.readFileSync(path.join(dataDir, 'backup-check.json'), 'utf8'));
+    return { checkedAt: String(checkedAt), ok: ok === true, message: String(message) };
+  } catch {
+    return undefined;
+  }
+}
+
 /** Alisa's stories and camera roll, behind ADMIN_PASSWORD. */
-export function adminRoutes({ db, config, media, responder }: Deps) {
+export function adminRoutes({ db, config, media, responder, budget }: Deps) {
   const app = new Hono();
   const attempts = new RateLimiter(10, 10 * 60_000);
   const admin = (c: Parameters<typeof isAdmin>[0]) => isAdmin(c, config.secret, config.adminPassword);
 
-  app.get('/me', (c) => c.json({ enabled: !!config.adminPassword, admin: admin(c), storage: media.storage.kind }));
+  app.get('/me', (c) => {
+    const signedIn = admin(c);
+    const me: AdminMeDTO = { enabled: !!config.adminPassword, admin: signedIn, storage: media.storage.kind };
+    if (signedIn) {
+      me.spend = budget.today();
+      me.backup = backupCheck(config.dataDir);
+    }
+    return c.json(me);
+  });
 
   app.post('/login', async (c) => {
     if (!config.adminPassword) return c.json({ error: 'Set ADMIN_PASSWORD on the server to use this page.' }, 403);
@@ -25,7 +45,7 @@ export function adminRoutes({ db, config, media, responder }: Deps) {
     if (!passwordMatches(String(body.password ?? ''), config.adminPassword)) {
       return c.json({ error: 'Wrong password.' }, 401);
     }
-    grantAdmin(c, config.secret);
+    grantAdmin(c, config.secret, config.adminPassword);
     return c.json({ ok: true });
   });
 
@@ -121,10 +141,13 @@ export function adminRoutes({ db, config, media, responder }: Deps) {
     const form = await c.req.parseBody({ all: true });
     const files = ([] as unknown[]).concat(form.photo ?? []).filter((f): f is File => f instanceof File);
     if (files.length === 0) return c.json({ error: 'Choose at least one photo.' }, 400);
+    if (files.length > PHOTOS_PER_UPLOAD) {
+      return c.json({ error: `Add up to ${PHOTOS_PER_UPLOAD} photos per request.` }, 400);
+    }
     const description = typeof form.description === 'string' ? form.description : undefined;
     const added: LibraryPhotoRow[] = [];
     try {
-      for (const file of files.slice(0, 20)) {
+      for (const file of files) {
         added.push(
           await addLibraryPhoto(db, media, responder, new Uint8Array(await file.arrayBuffer()), files.length === 1 ? description : undefined),
         );

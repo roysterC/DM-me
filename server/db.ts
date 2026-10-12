@@ -32,6 +32,13 @@ export interface MessageRow {
   read_at: string | null;
   /** The message this one quotes, Instagram-style ("You replied to Alisa"). */
   reply_to_id: number | null;
+  /**
+   * Where this message sits in the order Alisa experienced the chat: a visitor's message gets
+   * its number when she reads it, hers when she writes it. Null until then (and on older rows).
+   */
+  context_seq: number | null;
+  /** For a disappearing photo the visitor sent: Alisa's note of what it showed, once she's seen it. */
+  memory_text: string | null;
 }
 
 export interface StoryRow {
@@ -57,7 +64,8 @@ export interface LibraryPhotoRow {
   send_mode: SendMode;
 }
 
-const MIGRATIONS: string[] = [
+/** Each entry upgrades the database by one version (PRAGMA user_version). Append only. */
+export const MIGRATIONS: string[] = [
   `
   CREATE TABLE visitors (
     id INTEGER PRIMARY KEY,
@@ -145,6 +153,46 @@ const MIGRATIONS: string[] = [
   `,
   `
   ALTER TABLE messages ADD COLUMN reply_to_id INTEGER REFERENCES messages(id) ON DELETE SET NULL;
+  `,
+  `
+  ALTER TABLE messages ADD COLUMN context_seq INTEGER;
+  `,
+  // What the site spent on Claude each UTC day, for DAILY_BUDGET_USD.
+  `
+  CREATE TABLE ai_usage (
+    day TEXT PRIMARY KEY,
+    calls INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cache_write_tokens INTEGER NOT NULL,
+    cache_read_tokens INTEGER NOT NULL,
+    cost_micro_usd INTEGER NOT NULL
+  );
+  `,
+  // Cleanup finds visitors who haven't been back for a while.
+  `
+  CREATE INDEX visitors_by_last_seen ON visitors (last_seen_at);
+  `,
+  `
+  ALTER TABLE messages ADD COLUMN memory_text TEXT;
+  `,
+  // Long chats: what Alisa remembers of the messages before her history window, and how many
+  // messages (in the order she experienced them) that covers.
+  `
+  ALTER TABLE conversations ADD COLUMN summary TEXT;
+  ALTER TABLE conversations ADD COLUMN summarized INTEGER NOT NULL DEFAULT 0;
+  `,
+  // Devices that asked to be notified when Alisa replies.
+  `
+  CREATE TABLE push_subscriptions (
+    endpoint TEXT PRIMARY KEY,
+    visitor_id INTEGER NOT NULL REFERENCES visitors(id) ON DELETE CASCADE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX push_by_visitor ON push_subscriptions (visitor_id);
   `,
 ];
 

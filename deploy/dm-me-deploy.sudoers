@@ -1,0 +1,5 @@
+# Installed by deploy/enable-auto-deploy.sh, kept current by deploy/setup.sh.
+# The GitHub Actions deploy key may run deploy/update.sh as root, with no arguments, and nothing
+# else. It names the commit it tested in SSH_ORIGINAL_COMMAND, which update.sh checks strictly.
+Defaults:dm-me-deploy env_keep += "SSH_ORIGINAL_COMMAND"
+dm-me-deploy ALL=(root) NOPASSWD: @UPDATE@ ""

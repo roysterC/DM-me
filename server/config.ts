@@ -8,6 +8,8 @@ export interface Config {
   port: number;
   /** Interface to listen on. Use 127.0.0.1 behind a reverse proxy such as Caddy. */
   host: string;
+  /** Connections whose X-Forwarded-For/-Proto/-Host headers are believed (see ProxyTrust). */
+  trustProxy: string;
   /** SQLite database, plus photos when no bucket is configured. */
   dataDir: string;
   assetsDir: string;
@@ -25,6 +27,8 @@ export interface Config {
   photoSeconds: number;
   /** Alisa replies per visitor per day. */
   dailyReplyLimit: number;
+  /** Most the whole site spends on Claude per UTC day, in US dollars. 0 = no limit. */
+  dailyBudgetUsd: number;
   /** How fast Alisa "types": her bubbles appear after about as long as typing them takes. 0 = instantly. */
   typingCharsPerSecond: number;
 }
@@ -58,6 +62,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
   return {
     port: Number(env.PORT ?? 3000),
     host: env.HOST ?? '0.0.0.0',
+    trustProxy: env.TRUST_PROXY || 'loopback',
     dataDir,
     assetsDir: path.resolve(env.ASSETS_DIR ?? 'server/assets'),
     clientDir: path.resolve(env.CLIENT_DIR ?? 'dist/client'),
@@ -70,6 +75,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     seedSamplePhotos: env.SAMPLE_PHOTOS !== 'off',
     photoSeconds: Number(env.PHOTO_SECONDS ?? 5),
     dailyReplyLimit: Number(env.DAILY_REPLY_LIMIT ?? 200),
+    dailyBudgetUsd: Number(env.DAILY_BUDGET_USD || 2),
     typingCharsPerSecond: Number(env.TYPING_SPEED ?? 7),
     ...overrides,
   };

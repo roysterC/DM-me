@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import type { OpenPhotoDTO, PersonaDTO } from '../../shared/types';
 import type { UiMessage } from '../lib/thread';
 import { shortAge } from '../lib/time';
+import { useDialog } from '../lib/useDialog';
 import { Avatar } from './Avatar';
 import { IconClose, IconHeart, IconOnce, IconReplay, IconSend } from './Icons';
 import { TimerBar, useHoldToPause } from './TimerBar';
@@ -24,11 +25,8 @@ export function PhotoViewer({ message, opened, persona, onClose, onReply, onTogg
   const [text, setText] = useState('');
   const { consumeHold, ...holdHandlers } = useHoldToPause(setHeld);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialog(dialog, onClose);
 
   const replay = opened.maxViews > 1;
   const note = !replay
@@ -45,7 +43,7 @@ export function PhotoViewer({ message, opened, persona, onClose, onReply, onTogg
   };
 
   return (
-    <div className="overlay photo-viewer" role="dialog" aria-modal="true" aria-label={`Photo from ${persona.name}`}>
+    <div ref={dialog} className="overlay photo-viewer" role="dialog" aria-modal="true" aria-label={`Photo from ${persona.name}`}>
       <div className="story-stage">
         <img
           className="story-media"
@@ -116,13 +114,10 @@ export function PhotoViewer({ message, opened, persona, onClose, onReply, onTogg
 
 /** Plain full-screen view for photos kept in the chat. */
 export function Lightbox({ url, alt, onClose }: { url: string; alt: string; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialog(dialog, onClose);
   return (
-    <div className="overlay lightbox" role="dialog" aria-modal="true" aria-label={alt}>
+    <div ref={dialog} className="overlay lightbox" role="dialog" aria-modal="true" aria-label={alt}>
       <button type="button" className="lightbox-backdrop" onClick={onClose} aria-label="Close photo" />
       <img src={url} alt={alt} />
       <button type="button" className="icon-btn lightbox-close" onClick={onClose} aria-label="Close photo">

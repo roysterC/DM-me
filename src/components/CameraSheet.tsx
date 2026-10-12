@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { prepareImage, type PreparedImage } from '../lib/image';
+import { useDialog } from '../lib/useDialog';
 import { IconClose, IconFlip, IconImage } from './Icons';
 
 interface Props {
@@ -51,11 +52,8 @@ export function CameraSheet({ onClose, onCaptured }: Props) {
     };
   }, [facing]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialog(dialog, onClose);
 
   const capture = async () => {
     const v = video.current;
@@ -85,7 +83,7 @@ export function CameraSheet({ onClose, onCaptured }: Props) {
   };
 
   return (
-    <div className="overlay camera" role="dialog" aria-modal="true" aria-label="Camera">
+    <div ref={dialog} className="overlay camera" role="dialog" aria-modal="true" aria-label="Camera">
       <div className="camera-stage">
         {!error && (
           <video

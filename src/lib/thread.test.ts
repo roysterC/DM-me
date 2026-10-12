@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MessageDTO } from '../../shared/types';
-import { bubbleRadius, buildThread } from './thread';
+import { bubbleRadius, buildThread, mergeServer } from './thread';
 import { separatorLabel, shortAge } from './time';
 
 const msg = (id: number, sender: 'user' | 'ai', at: string, extra: Partial<MessageDTO> = {}): MessageDTO => ({
@@ -60,5 +60,15 @@ describe('labels', () => {
     expect(separatorLabel(new Date(2026, 9, 9, 21, 2).toISOString(), now)).toBe('Today 9:02 PM');
     expect(separatorLabel(new Date(2026, 9, 8, 8, 10).toISOString(), now)).toBe('Yesterday 8:10 AM');
     expect(shortAge(new Date(now.getTime() - 3 * 3600_000).toISOString(), now.getTime())).toBe('3h');
+  });
+});
+
+describe('mergeServer', () => {
+  it('keeps what the visitor sent since, but not old messages that slid out of the server’s window', () => {
+    const at = '2026-10-09T21:00:00.000Z';
+    // The server now sends messages 2–4; message 1 (theirs) is older than its window.
+    const server = [msg(2, 'ai', at), msg(3, 'user', at), msg(4, 'ai', at)];
+    const local = [msg(1, 'user', at), ...server, msg(5, 'user', at), { ...msg(-1, 'user', at), pending: 'sending' as const }];
+    expect(mergeServer(server, local).map((m) => m.id)).toEqual([2, 3, 4, 5, -1]);
   });
 });

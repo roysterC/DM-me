@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { memo, useRef } from 'react';
 import type { PersonaDTO, ReplyRefDTO } from '../../shared/types';
 import { bubbleRadius, type UiMessage } from '../lib/thread';
 import { clockTime } from '../lib/time';
@@ -20,7 +20,8 @@ interface Props {
   onJumpTo: (id: number) => void;
 }
 
-export function MessageItem({ message: m, persona, joinPrev, joinNext, showAvatar, ...on }: Props) {
+/** One message row. Memoized: with stable callbacks, a new message doesn't re-render the rest. */
+export const MessageItem = memo(function MessageItem({ message: m, persona, joinPrev, joinNext, showAvatar, ...on }: Props) {
   const mine = m.sender === 'user';
   const radius = bubbleRadius(m.sender, joinPrev, joinNext);
   const lastTap = useRef(0);
@@ -37,8 +38,10 @@ export function MessageItem({ message: m, persona, joinPrev, joinNext, showAvata
     }
   };
 
-  const content = renderContent(m, radius, on);
+  const content = renderContent(m, radius, persona.name, on);
   const heart = mine ? m.heartByAi : m.heartByUser;
+  // Shown on hover with a mouse; on touch screens swiping replies, and the button stays
+  // reachable for screen readers and keyboards.
   const replyButton = m.id > 0 && !m.pending && (
     <button type="button" className="msg-reply-btn" onClick={() => on.onReply(m)} aria-label="Reply">
       <IconReply size={18} />
@@ -60,6 +63,7 @@ export function MessageItem({ message: m, persona, joinPrev, joinNext, showAvata
       )}
       {mine && replyButton}
       <div className="msg-col" onClick={tapToHeart}>
+        <span className="sr-only">{mine ? 'You' : persona.name}:</span>
         {m.kind === 'story_reply' && m.story && <StoryQuote story={m.story} />}
         {m.replyTo && <ReplyQuote quoted={m.replyTo} mine={mine} name={persona.name} onJump={on.onJumpTo} />}
         {content}
@@ -74,6 +78,20 @@ export function MessageItem({ message: m, persona, joinPrev, joinNext, showAvata
             <IconHeart filled size={13} />
           </button>
         )}
+        {/* Double-tapping hearts; this does the same without a gesture. */}
+        {!mine && !m.pending && (
+          <button
+            type="button"
+            className="msg-heart-btn until-focus"
+            onClick={(e) => {
+              e.stopPropagation();
+              on.onToggleHeart(m);
+            }}
+            aria-pressed={m.heartByUser}
+          >
+            {m.heartByUser ? 'Hearted' : 'Heart'}
+          </button>
+        )}
         {m.pending === 'failed' && (
           <button type="button" className="msg-failed" onClick={() => on.onRetry(m)}>
             Not sent. Tap to retry.
@@ -82,12 +100,12 @@ export function MessageItem({ message: m, persona, joinPrev, joinNext, showAvata
       </div>
       {!mine && replyButton}
       {/* Slides into view when the chat is swiped left. */}
-      <time className="msg-time" dateTime={m.createdAt} aria-hidden="true">
+      <time className="msg-time" dateTime={m.createdAt}>
         {clockTime(m.createdAt)}
       </time>
     </div>
   );
-}
+});
 
 /** "You replied to Alisa" and a faded copy of what was quoted; tap it to jump there. */
 function ReplyQuote(props: { quoted: ReplyRefDTO; mine: boolean; name: string; onJump: (id: number) => void }) {
@@ -118,7 +136,7 @@ function ReplyQuote(props: { quoted: ReplyRefDTO; mine: boolean; name: string; o
   );
 }
 
-function renderContent(m: UiMessage, radius: string, on: Pick<Props, 'onOpenEphemeral' | 'onOpenKept'>) {
+function renderContent(m: UiMessage, radius: string, name: string, on: Pick<Props, 'onOpenEphemeral' | 'onOpenKept'>) {
   const mine = m.sender === 'user';
   const style = { borderRadius: radius };
 
@@ -142,7 +160,7 @@ function renderContent(m: UiMessage, radius: string, on: Pick<Props, 'onOpenEphe
     const ratio = p.width && p.height ? `${p.width} / ${p.height}` : '4 / 5';
     return (
       <button type="button" className="photo-kept" style={{ ...style, aspectRatio: ratio }} onClick={() => on.onOpenKept(m)} aria-label="Open photo">
-        <img src={p.url!} alt={mine ? 'Photo you sent' : 'Photo from Alisa'} loading="lazy" />
+        <img src={p.url!} alt={mine ? 'Photo you sent' : `Photo from ${name}`} loading="lazy" />
       </button>
     );
   }
@@ -151,7 +169,16 @@ function renderContent(m: UiMessage, radius: string, on: Pick<Props, 'onOpenEphe
   if (mine) {
     // Your own view-once photo: you can't reopen it, you only see whether Alisa has.
     const opened = p.viewCount > 0;
-    const status = m.pending === 'sending' ? 'Sending…' : m.pending === 'failed' ? 'Not sent' : opened ? 'Opened' : 'Delivered';
+    const status =
+      m.pending === 'sending'
+        ? 'Sending…'
+        : m.pending === 'failed'
+          ? 'Not sent'
+          : p.mode === 'replay' && p.viewCount > 1
+            ? 'Replayed'
+            : opened
+              ? 'Opened'
+              : 'Delivered';
     return (
       <div className={`eph ${opened ? 'eph-spent' : 'eph-sent sent-fill'}`} style={style}>
         <span className="eph-icon">
@@ -174,14 +201,14 @@ function renderContent(m: UiMessage, radius: string, on: Pick<Props, 'onOpenEphe
         </span>
         <span className="eph-text">
           <span className="eph-title">Photo</span>
-          <span className="eph-sub">Opened</span>
+          <span className="eph-sub">{p.mode === 'replay' && p.viewCount > 1 ? 'Replayed' : 'Opened'}</span>
         </span>
       </div>
     );
   }
   const sub = p.viewCount === 0 ? 'Tap to view' : 'Tap to replay';
   return (
-    <button type="button" className="eph eph-recv" style={style} onClick={() => on.onOpenEphemeral(m)} aria-label={`Photo from Alisa. ${sub}`}>
+    <button type="button" className="eph eph-recv" style={style} onClick={() => on.onOpenEphemeral(m)} aria-label={`Photo from ${name}. ${sub}`}>
       <span className="eph-icon eph-icon-live">
         <ModeIcon size={18} />
       </span>

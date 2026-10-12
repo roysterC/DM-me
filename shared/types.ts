@@ -80,6 +80,16 @@ export interface StoryDTO {
   liked: boolean;
 }
 
+export interface AdminMeDTO {
+  enabled: boolean;
+  admin: boolean;
+  storage: 'local' | 's3';
+  /** Today's Claude spend (UTC day); only for a signed-in admin. limitUsd 0 = no limit. */
+  spend?: { day: string; calls: number; spentUsd: number; limitUsd: number };
+  /** The latest daily backup check (deploy/backup-check.sh), on servers that run it. */
+  backup?: { checkedAt: string; ok: boolean; message: string };
+}
+
 export interface AdminStoryDTO extends StoryDTO {
   active: boolean;
   views: number;
@@ -106,3 +116,6 @@ export interface OpenPhotoDTO {
 }
 
 export const STORY_BGS: StoryBg[] = ['violet', 'sunset', 'ocean', 'forest'];
+
+/** Photos per request when adding to Alisa's camera roll; the admin page sends more in turns. */
+export const PHOTOS_PER_UPLOAD = 5;

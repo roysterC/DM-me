@@ -30,8 +30,8 @@ fi
 
 sudoers=/etc/sudoers.d/dm-me-deploy
 tmp_sudoers=$(mktemp)
-# The empty "" means: exactly this command, with no arguments.
-printf '%s ALL=(root) NOPASSWD: %s ""\n' "$DEPLOY_USER" "$UPDATE" >"$tmp_sudoers"
+# Exactly update.sh, with no arguments; GitHub names the commit to deploy in SSH_ORIGINAL_COMMAND.
+sed "s|@UPDATE@|$UPDATE|g" "$APP_DIR/deploy/dm-me-deploy.sudoers" >"$tmp_sudoers"
 visudo -cqf "$tmp_sudoers" || { rm -f "$tmp_sudoers"; die "sudo rejected the rule for $DEPLOY_USER."; }
 install -m 440 -o root -g root "$tmp_sudoers" "$sudoers"
 rm -f "$tmp_sudoers"

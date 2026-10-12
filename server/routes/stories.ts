@@ -2,10 +2,11 @@ import { Hono } from 'hono';
 import type { Deps } from '../app';
 import { conversationFor, getMessage, toMessageDTO } from '../chat';
 import { nowIso } from '../db';
-import type { AppEnv } from '../identity';
+import { type AppEnv, SENDING_TOO_FAST } from '../identity';
+import { MAX_TEXT } from './chat';
 import { activeStoryMap, ensureStories, listStoriesFor } from '../stories';
 
-export function storyRoutes({ db, config, media }: Deps) {
+export function storyRoutes({ db, config, media, sends }: Deps) {
   const app = new Hono<AppEnv>();
 
   app.get('/', async (c) => {
@@ -45,7 +46,10 @@ export function storyRoutes({ db, config, media }: Deps) {
     if (!story) return c.json({ error: 'That story has expired.' }, 404);
     const body = await c.req.json<{ text?: string }>().catch(() => ({}) as never);
     const text = String(body.text ?? '').trim();
-    if (!text || text.length > 2000) return c.json({ error: 'Write a reply first.' }, 400);
+    if (!text) return c.json({ error: 'Write a reply first.' }, 400);
+    if (text.length > MAX_TEXT) return c.json({ error: `Replies can be up to ${MAX_TEXT} characters.` }, 400);
+    // A story reply is a message like any other, so it counts toward the same sending limit.
+    if (!sends.take(c, c.get('visitor').id)) return c.json({ error: SENDING_TOO_FAST }, 429);
     const conversationId = conversationFor(db, c.get('visitor').id);
     const snapshot = JSON.stringify({ kind: story.kind, caption: story.caption, bg: story.bg });
     const { lastInsertRowid } = db
