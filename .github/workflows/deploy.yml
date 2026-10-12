@@ -18,18 +18,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The same checks as every pull request (ci.yml), on exactly the commit being deployed.
   test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+    uses: ./.github/workflows/ci.yml
 
   deploy:
     needs: test

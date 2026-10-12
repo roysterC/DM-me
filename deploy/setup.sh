@@ -19,6 +19,8 @@ RELEASES=/opt/dm-me-releases
 CURRENT=$RELEASES/current
 APP_USER=dmme
 NODE_MAJOR=22
+# NodeSource's apt signing key (deb.nodesource.com/gpgkey/nodesource-repo.gpg.key).
+NODESOURCE_KEY=6F71F525282841EEDAF851B42F59B5F99B1BE0B4
 LITESTREAM_VERSION=0.5.17
 declare -A LITESTREAM_SHA256=(
   [x86_64]=a191a0928884d1820fab1f866ede1d0d5811c323d0587bf863a43481a82a7668
@@ -222,10 +224,21 @@ apt-get install -y -qq curl ca-certificates gnupg >/dev/null
 node_major=$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/' || echo 0)
 if [[ ${node_major:-0} -lt $NODE_MAJOR ]]; then
   step "Installing Node.js $NODE_MAJOR"
-  curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o /tmp/nodesource_setup.sh
-  bash /tmp/nodesource_setup.sh >/dev/null
+  # NodeSource's apt repository, added here rather than by running their setup script as root,
+  # and only if their signing key is the one we expect.
+  key=$(mktemp)
+  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key -o "$key"
+  gpg --show-keys --with-colons "$key" 2>/dev/null | grep -q "^fpr:::::::::$NODESOURCE_KEY:" ||
+    die "NodeSource's signing key isn't the expected one ($NODESOURCE_KEY), so Node.js wasn't installed from it."
+  gpg --dearmor --yes -o /usr/share/keyrings/nodesource.gpg "$key"
+  chmod 644 /usr/share/keyrings/nodesource.gpg
+  rm -f "$key"
+  printf '%s\n' 'Types: deb' "URIs: https://deb.nodesource.com/node_${NODE_MAJOR}.x" 'Suites: nodistro' \
+    'Components: main' "Architectures: $(dpkg --print-architecture)" 'Signed-By: /usr/share/keyrings/nodesource.gpg' \
+    >/etc/apt/sources.list.d/nodesource.sources
+  printf '%s\n' 'Package: nodejs' 'Pin: origin deb.nodesource.com' 'Pin-Priority: 600' >/etc/apt/preferences.d/nodejs
+  apt-get update -qq
   apt-get install -y -qq nodejs >/dev/null
-  rm -f /tmp/nodesource_setup.sh
 fi
 NODE_BIN=$(command -v node)
 echo "Node $(node -v)"

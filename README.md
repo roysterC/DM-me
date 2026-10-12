@@ -111,6 +111,8 @@ DATA_DIR=/tmp/dmme-e2e DM_ME_FAKE_AI=1 ADMIN_PASSWORD=letmein PORT=3456 npm star
 node scripts/e2e.mjs http://localhost:3456 test-results/screens
 ```
 
+GitHub runs all of these on every pull request (`.github/workflows/ci.yml`), and again on each commit to `main` before deploying it.
+
 ## How it's built
 
 ```
