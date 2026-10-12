@@ -58,4 +58,15 @@ describe('ClaudeResponder budget', () => {
     await expect(responder.describe(new Uint8Array(1), 'image/jpeg')).rejects.toBeInstanceOf(AiUnavailableError);
     expect(requests).toHaveLength(2);
   });
+
+  it('counts chat summaries against the budget too', async () => {
+    const budget = new Budget(openDb(':memory:'), 1);
+    const { client, requests } = stub({ input_tokens: 10_000, output_tokens: 200 });
+    const responder = new ClaudeResponder('claude-haiku-5-5', budget, client);
+    await responder.summarize(null, 'Them (Mon 9:00 PM): hi');
+    expect(budget.today().calls).toBe(1);
+    const sent = requests[0] as { system: string; messages: { content: string }[] };
+    expect(sent.system).toMatch(/memory of a long direct-message chat/);
+    expect(sent.messages[0].content).toContain('(nothing yet)');
+  });
 });

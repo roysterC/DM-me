@@ -143,7 +143,8 @@ How Alisa replies:
 
 - Each reply is one call to **Claude Haiku 5.5** at `low` effort, which is fast and cheap for chat: $0.10 per million input tokens and $0.50 per million output, so a typical reply costs a small fraction of a cent. The answer comes back as structured JSON: the bubbles to send, whether to heart the visitor's last message, and optionally a camera-roll photo and how to send it.
 - The conversation is sent each time, with each visitor message stamped in their time zone so Alisa knows when "tonight" is. The persona prompt and earlier messages are prompt-cached.
-- Kept photos are re-sent as images (up to the 12 most recent). A view-once photo is included only in the turn Alisa first sees it; after that she gets a note saying she already viewed it.
+- Long chats: Alisa sees the latest 80 to 120 messages word for word. Once more than 120 follow what she remembers, the oldest are condensed (one extra Haiku call, in the background, counted in the daily budget) into a short memory of who the visitor is and what you've talked about, which starts her history from then on. The window moves in steps like this, rather than one message per reply, so the cached history stays valid.
+- Kept photos are re-sent as images (up to the 12 most recent, 15 MB in all). A view-once photo is included only in the turn Alisa first sees it; she notes what it showed, and after that sees that note in its place.
 - Alisa is told about the newest 150 photos in her camera roll.
 - If Claude declines a message for safety reasons, Alisa answers "I can't help with that one." (Haiku has no automatic retry on another model.)
 

@@ -45,6 +45,8 @@ export async function buildConversation(
   timeZone: string,
   refByKey: Map<string, string>,
   lookup?: (id: number) => MessageRow | undefined,
+  /** What she remembers of the chat before `rows` (see summarize). */
+  memory?: string | null,
 ): Promise<{ messages: Turn[]; opening: number[] }> {
   const opening: number[] = [];
   const byId = new Map(rows.map((r) => [r.id, r]));
@@ -84,6 +86,11 @@ export async function buildConversation(
     }
   }
 
+  if (memory) {
+    const note: Block = { type: 'text', text: `(earlier in this chat, which you remember: ${memory})` };
+    if (turns[0]?.role === 'user') turns[0] = { role: 'user', content: [note, ...(turns[0].content as Block[])] };
+    else turns.unshift({ role: 'user', content: [note] });
+  }
   if (turns[0]?.role === 'assistant') turns.unshift({ role: 'user', content: '(opened the chat)' });
   return { messages: turns, opening };
 }
@@ -137,6 +144,31 @@ function userBlocks(
     ? `${stamp} (sent a view-once photo that you already viewed${remembered})`
     : `${stamp} (sent a photo earlier in the chat; it's no longer attached)`;
   return [{ type: 'text', text: note }];
+}
+
+/**
+ * Older messages as plain lines for the summary: "Them (Sat 9:30 PM): ...", "You: ...".
+ * `photoNames` maps camera-roll keys to their descriptions, so her photos read as what they were.
+ */
+export function transcriptOf(rows: MessageRow[], timeZone: string, photoNames: Map<string, string>): string {
+  return rows
+    .map((r) => {
+      if (r.sender === 'ai') {
+        if (r.kind === 'photo') return `You: (sent a photo: ${(r.media_key && photoNames.get(r.media_key)) || 'from your camera roll'})`;
+        return `You: ${r.text ?? ''}`;
+      }
+      const who = `Them (${formatStamp(r.created_at, timeZone)})`;
+      if (r.kind === 'photo') {
+        if (r.photo_mode === 'keep') return `${who}: (sent a photo)`;
+        return `${who}: (sent a disappearing photo${r.memory_text ? `: ${r.memory_text}` : ''})`;
+      }
+      if (r.kind === 'story_reply') {
+        const story = r.story_snapshot ? (JSON.parse(r.story_snapshot) as { caption?: string | null }) : {};
+        return `${who}: (replied to your story${story.caption ? ` "${story.caption}"` : ''}) ${visitorText(r.text)}`;
+      }
+      return `${who}: ${visitorText(r.text)}`;
+    })
+    .join('\n');
 }
 
 /**

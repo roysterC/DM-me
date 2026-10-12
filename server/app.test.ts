@@ -817,6 +817,71 @@ describe('buildConversation', () => {
   });
 });
 
+describe('long chats', () => {
+  /** Fills a visitor's chat with `n` read messages, alternating theirs and Alisa's. */
+  const fill = (t: ReturnType<typeof setup>, conversationId: number, n: number) => {
+    const insert = t.db.prepare(
+      `INSERT INTO messages (conversation_id, sender, kind, text, created_at, read_at, context_seq) VALUES (?, ?, 'text', ?, ?, ?, ?)`,
+    );
+    const start = Date.now() - n * 60_000;
+    for (let i = 0; i < n; i++) {
+      const at = new Date(start + i * 60_000).toISOString();
+      insert.run(conversationId, i % 2 ? 'ai' : 'user', `line ${i}`, at, at, i + 1);
+    }
+  };
+
+  it('folds the oldest messages into what Alisa remembers, and sees the rest word for word', async () => {
+    const t = setup();
+    const me = t.browser();
+    await me('GET', '/api/chat');
+    const conversationId = (t.db.prepare('SELECT id FROM conversations').get() as { id: number }).id;
+    fill(t, conversationId, 130);
+    await me('POST', '/api/chat/messages', { text: 'still there?' });
+    await me('POST', '/api/chat/reply', {});
+    // The first reply saw all 131 (nothing summarized yet) and then started the summary.
+    await t.deps.replies.settled();
+    expect(t.fake.summaries).toHaveLength(1);
+    const first = t.fake.summaries[0];
+    expect(first.previous).toBeNull();
+    expect(first.transcript.split('\n')).toHaveLength(132 - 80);
+    expect(first.transcript).toMatch(/^Them \(.*\): line 0\nYou: line 1\n/);
+    const conv = t.db.prepare('SELECT summary, summarized FROM conversations').get() as { summary: string; summarized: number };
+    expect(conv).toEqual({ summary: '(remembered 52 lines)', summarized: 52 });
+
+    // The next reply starts from that memory and sees only the newer 80 and what came since.
+    await me('POST', '/api/chat/messages', { text: 'hello??' });
+    await me('POST', '/api/chat/reply', {});
+    const seen = t.fake.calls[1].messages;
+    expect(JSON.stringify(seen[0])).toContain('(earlier in this chat, which you remember: (remembered 52 lines))');
+    expect(JSON.stringify(seen)).not.toContain('line 50"');
+    expect(JSON.stringify(seen)).toContain('line 52"');
+    await t.deps.replies.settled();
+    // Not again until the window passes 120 messages more.
+    expect(t.fake.summaries).toHaveLength(1);
+  });
+
+  it('throws away a summary for a chat deleted while it was being written', async () => {
+    const t = setup();
+    const me = t.browser();
+    await me('GET', '/api/chat');
+    const conversationId = (t.db.prepare('SELECT id FROM conversations').get() as { id: number }).id;
+    fill(t, conversationId, 130);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const summarize = t.fake.summarize.bind(t.fake);
+    t.fake.summarize = async (prev, transcript) => {
+      await gate;
+      return summarize(prev, transcript);
+    };
+    await me('POST', '/api/chat/messages', { text: 'hi' });
+    await me('POST', '/api/chat/reply', {});
+    await me('DELETE', '/api/chat');
+    release();
+    await t.deps.replies.settled();
+    expect(t.db.prepare('SELECT summary, summarized FROM conversations').all()).toEqual([{ summary: null, summarized: 0 }]);
+  });
+});
+
 describe('races and limits around a reply', () => {
   /** Holds Alisa's next reply until `release()`, so something can happen while she "writes". */
   const hold = (t: ReturnType<typeof setup>, change?: (r: Awaited<ReturnType<FakeResponder['reply']>>) => void) => {

@@ -24,7 +24,15 @@ export interface Responder {
   reply(req: ReplyRequest): Promise<PersonaReply>;
   /** One line describing a photo, used to catalogue Alisa's camera roll. */
   describe(data: Uint8Array, mime: string): Promise<string>;
+  /** Folds older messages (a transcript) into what Alisa remembers of a long chat. */
+  summarize(previous: string | null, transcript: string): Promise<string>;
 }
+
+const SUMMARY_PROMPT = `You keep the memory of a long direct-message chat for Alisa, who is chatting with someone. Older messages are about to drop out of what she can see, so write what she should remember from them.
+
+Write in the second person to Alisa ("they told you...", "you sent them..."), as plain short sentences, at most 200 words. Keep what matters for carrying on the chat naturally: who they are (name, age, where they're from, work or study, people and pets they mention), what they like and care about, plans and events they mentioned (with dates when given), running jokes, things you promised or asked, the overall tone between you, and photos either of you sent. Drop small talk that leads nowhere. Facts only: don't invent or guess anything.
+
+You'll get what she remembered before (possibly nothing) and the older messages. Merge them into one updated memory; if they conflict, the newer messages win.`;
 
 /** The shape Alisa answers in. Key order is fixed so the request prefix stays cacheable. */
 export function replySchema(photoRefs: string[]) {
@@ -137,6 +145,23 @@ export class ClaudeResponder implements Responder {
     return reply;
   }
 
+  async summarize(previous: string | null, transcript: string): Promise<string> {
+    const response = await this.call({
+      max_tokens: 1500,
+      output_config: { effort: 'low' },
+      system: SUMMARY_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: `What Alisa remembered before:\n${previous?.trim() || '(nothing yet)'}\n\nThe older messages:\n${transcript}`,
+        },
+      ],
+    });
+    const text = response.stop_reason === 'refusal' ? '' : textOf(response.content).trim();
+    if (!text) throw new AiUnavailableError('The chat summary came back empty.');
+    return text.slice(0, 3000);
+  }
+
   async describe(data: Uint8Array, mime: string): Promise<string> {
     const response = await this.call({
       max_tokens: 1000,
@@ -195,5 +220,13 @@ export class FakeResponder implements Responder {
 
   async describe(): Promise<string> {
     return 'a test photo';
+  }
+
+  summaries: { previous: string | null; transcript: string }[] = [];
+
+  async summarize(previous: string | null, transcript: string): Promise<string> {
+    this.summaries.push({ previous, transcript });
+    const lines = transcript.split('\n').length;
+    return `${previous ? `${previous} ` : ''}(remembered ${lines} lines)`;
   }
 }

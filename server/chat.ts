@@ -1,5 +1,5 @@
 import type { MessageDTO, ReplyRefDTO, StoryRefDTO } from '../shared/types';
-import { buildConversation, messageRef } from './ai/context';
+import { buildConversation, messageRef, transcriptOf } from './ai/context';
 import { systemPrompt } from './ai/persona';
 import type { Responder } from './ai/responder';
 import type { DB, MessageRow, StoryRow } from './db';
@@ -8,7 +8,16 @@ import { cameraRoll } from './library';
 import type { MediaStore } from './media';
 import { type Bubble, schedule, splitBubbles } from './pacing';
 
-const HISTORY_LIMIT = 80;
+/**
+ * How much of a long chat Alisa sees word for word. Once more than WINDOW_MAX messages follow
+ * what she remembers, the oldest are folded into her memory until WINDOW_KEEP remain. Moving
+ * the window in steps (not one message per reply) keeps the history the same between steps,
+ * so Claude's prompt cache can reuse it.
+ */
+const WINDOW_KEEP = 80;
+const WINDOW_MAX = 120;
+/** Never send more than this, even if summarizing is failing (say, the day's budget is spent). */
+const WINDOW_HARD_MAX = 160;
 
 export function conversationFor(db: DB, visitorId: number): number {
   const existing = db.prepare('SELECT id FROM conversations WHERE visitor_id = ?').get(visitorId) as
@@ -159,6 +168,65 @@ export class ReplyService {
   drop(conversationId: number) {
     const inflight = this.running.get(conversationId);
     if (inflight) inflight.dropped = true;
+    const summary = this.summarizing.get(conversationId);
+    if (summary) summary.dropped = true;
+    this.summaryFailedAt.delete(conversationId);
+  }
+
+  private summarizing = new Map<number, { job: Promise<void>; dropped: boolean }>();
+  /** When summarizing last failed per chat, so a failing one isn't retried on every reply. */
+  private summaryFailedAt = new Map<number, number>();
+
+  /** Resolves once any summaries started for these chats are written (for tests). */
+  async settled(): Promise<void> {
+    await Promise.all([...this.summarizing.values()].map((s) => s.job));
+  }
+
+  /** The chat as Alisa sees it: what she remembers, then the messages after that, in order. */
+  private history(conversationId: number) {
+    const conv = this.db.prepare('SELECT summary, summarized FROM conversations WHERE id = ?').get(conversationId) as
+      | { summary: string | null; summarized: number }
+      | undefined;
+    const all = contextOrder(listMessages(this.db, conversationId, 1_000_000));
+    const rows = all.slice(conv?.summarized ?? 0).slice(-WINDOW_HARD_MAX);
+    return { all, rows, summary: conv?.summary ?? null, summarized: conv?.summarized ?? 0 };
+  }
+
+  /**
+   * Folds the oldest messages into Alisa's memory when the window has grown past WINDOW_MAX.
+   * Runs after a reply, in the background; if it fails, the window just grows (up to its hard max).
+   */
+  private maybeSummarize(conversationId: number, timeZone: string) {
+    if (this.summarizing.has(conversationId)) return;
+    if (Date.now() - (this.summaryFailedAt.get(conversationId) ?? 0) < 30 * 60_000) return;
+    const { all, summary, summarized } = this.history(conversationId);
+    // Only messages she has read and answered: the last WINDOW_KEEP stay word for word.
+    const upTo = all.length - WINDOW_KEEP;
+    if (all.length - summarized <= WINDOW_MAX || upTo <= summarized) return;
+    const older = all.slice(summarized, upTo);
+    if (older.some((r) => r.sender === 'user' && !r.read_at)) return;
+    const photoNames = new Map(
+      (this.db.prepare('SELECT media_key, description FROM library_photos').all() as { media_key: string; description: string }[]).map(
+        (p) => [p.media_key, p.description],
+      ),
+    );
+    const entry = { job: Promise.resolve(), dropped: false };
+    entry.job = this.responder
+      .summarize(summary, transcriptOf(older, timeZone, photoNames))
+      .then((text) => {
+        // Not if the chat was deleted meanwhile (its id may already belong to a new one).
+        if (entry.dropped) return;
+        this.db
+          .prepare('UPDATE conversations SET summary = ?, summarized = ? WHERE id = ? AND summarized = ?')
+          .run(text, upTo, conversationId, summarized);
+        this.summaryFailedAt.delete(conversationId);
+      })
+      .catch((err) => {
+        this.summaryFailedAt.set(conversationId, Date.now());
+        console.error('Chat summary failed', err instanceof Error ? err.message : err);
+      })
+      .finally(() => this.summarizing.delete(conversationId));
+    this.summarizing.set(conversationId, entry);
   }
 
   /** The next number in this chat's experienced order (see contextOrder). */
@@ -171,7 +239,7 @@ export class ReplyService {
 
   private async run(conversationId: number, timeZone: string, dropped: () => boolean): Promise<boolean> {
     const startedAt = Date.now();
-    const before = contextOrder(listMessages(this.db, conversationId, HISTORY_LIMIT));
+    const before = this.history(conversationId).rows;
     const lastUserBefore = before.findLast((r) => r.sender === 'user');
     if (!lastUserBefore) return false;
     // Reply to anything unread, or retry when the last attempt failed after reading it.
@@ -189,12 +257,17 @@ export class ReplyService {
       const markRead = this.db.prepare('UPDATE messages SET read_at = ?, context_seq = ? WHERE id = ?');
       for (const { id } of unreadIds) markRead.run(now, seq++, id);
     })();
-    const rows = contextOrder(listMessages(this.db, conversationId, HISTORY_LIMIT));
+    const { rows, summary } = this.history(conversationId);
     const lastUser = rows.findLast((r) => r.sender === 'user')!;
 
     const { roll, byRef, refByKey } = cameraRoll(this.db);
-    const { messages, opening } = await buildConversation(rows, this.media, timeZone, refByKey, (id) =>
-      getMessage(this.db, conversationId, id),
+    const { messages, opening } = await buildConversation(
+      rows,
+      this.media,
+      timeZone,
+      refByKey,
+      (id) => getMessage(this.db, conversationId, id),
+      summary,
     );
     const reply = await this.responder.reply({ system: systemPrompt(roll), messages, photoRefs: [...byRef.keys()] });
 
@@ -267,6 +340,7 @@ export class ReplyService {
     })();
     if (!saved) return false;
     await Promise.all(toDelete.map((k) => this.media.remove(k).catch((err) => console.error('Delete failed', k, err))));
+    this.maybeSummarize(conversationId, timeZone);
     return true;
   }
 }

@@ -175,6 +175,12 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE messages ADD COLUMN memory_text TEXT;
   `,
+  // Long chats: what Alisa remembers of the messages before her history window, and how many
+  // messages (in the order she experienced them) that covers.
+  `
+  ALTER TABLE conversations ADD COLUMN summary TEXT;
+  ALTER TABLE conversations ADD COLUMN summarized INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function openDb(dataDir: string): DB {
