@@ -18,7 +18,7 @@
   /* The top and bottom bars: see-through, with the chat blurred behind. */
   --bar-bg: rgba(255, 255, 255, 0.72);
   /* The top bar's backdrop: solid at the very top, fading to clear at its bottom edge. */
-  --header-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(255, 255, 255, 0.8) 100%);
+  --header-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0.6) 100%);
   --quote-bg: #f2f2f2;
   --quote-fg: var(--muted);
   --quote-bar: #dbdbdb;
@@ -43,7 +43,7 @@
     --spent-line: #3a3e45;
     --bar-bg: rgba(12, 15, 20, 0.78);
     /* Black behind the status bar, shading into the chat colour as it fades out. */
-    --header-bg: linear-gradient(180deg, rgba(0, 0, 0, 0.96) 0%, rgba(8, 10, 14, 0.9) 50%, rgba(12, 15, 20, 0.8) 100%);
+    --header-bg: linear-gradient(180deg, rgba(0, 0, 0, 0.7) 0%, rgba(8, 10, 14, 0.66) 50%, rgba(12, 15, 20, 0.58) 100%);
     --quote-bg: #181c21;
     --quote-fg: #939597;
     --quote-bar: #25282e;
