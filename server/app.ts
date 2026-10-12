@@ -11,7 +11,8 @@ import type { Config } from './config';
 import type { DB } from './db';
 import { type AppEnv, sameOrigin, visitor } from './identity';
 import { seedLibrary } from './library';
-import { MAX_UPLOAD_BYTES, MediaStore } from './media';
+import { PHOTOS_PER_UPLOAD } from '../shared/types';
+import { MAX_UPLOAD_BYTES, MAX_VISITOR_PHOTO_BYTES, MediaStore } from './media';
 import { adminRoutes } from './routes/admin';
 import { chatRoutes } from './routes/chat';
 import { mediaRoutes } from './routes/media';
@@ -35,6 +36,20 @@ export function pickResponder(config: Config, budget: Budget): Responder | null 
   const hasKey = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
   return hasKey ? new ClaudeResponder(config.anthropicModel, budget) : null;
 }
+
+const KB = 1024;
+/** Room for a photo's form fields and multipart framing. */
+const FORM_OVERHEAD = 64 * KB;
+/**
+ * Request bodies are read into memory whole, so each route accepts only what it needs: photo
+ * uploads get room for their photos, and everything else (small JSON) gets JSON_BODY_BYTES.
+ */
+const JSON_BODY_BYTES = 64 * KB;
+const UPLOAD_BODY_BYTES: Record<string, number> = {
+  '/api/chat/photos': MAX_VISITOR_PHOTO_BYTES + FORM_OVERHEAD,
+  '/api/admin/stories': MAX_UPLOAD_BYTES + FORM_OVERHEAD,
+  '/api/admin/photos': PHOTOS_PER_UPLOAD * MAX_UPLOAD_BYTES + FORM_OVERHEAD,
+};
 
 export function pickStorage(config: Config): Storage {
   if (config.s3) return new S3Storage(config.s3);
@@ -71,13 +86,17 @@ export function createApp(db: DB, config: Config, responder: Responder | null, s
     }),
   );
   app.use('/api/*', sameOrigin());
-  app.use(
-    '/api/*',
-    bodyLimit({
-      maxSize: 20 * MAX_UPLOAD_BYTES,
-      onError: (c) => c.json({ error: 'That upload is too large.' }, 413),
-    }),
+  const jsonLimit = bodyLimit({
+    maxSize: JSON_BODY_BYTES,
+    onError: (c) => c.json({ error: 'That’s too much to send at once.' }, 413),
+  });
+  const uploadLimits = new Map(
+    Object.entries(UPLOAD_BODY_BYTES).map(([route, maxSize]) => [
+      route,
+      bodyLimit({ maxSize, onError: (c) => c.json({ error: 'That photo is too large.' }, 413) }),
+    ]),
   );
+  app.use('/api/*', (c, next) => ((c.req.method === 'POST' && uploadLimits.get(c.req.path)) || jsonLimit)(c, next));
 
   const visitorApi = new Hono<AppEnv>();
   visitorApi.use('*', visitor(db));

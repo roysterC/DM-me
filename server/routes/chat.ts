@@ -7,7 +7,7 @@ import { conversationFor, getMessage, listMessages, maxViews, ownedUploads, spli
 import type { MessageRow } from '../db';
 import { nowIso } from '../db';
 import { type AppEnv, clientIp, RateLimiter } from '../identity';
-import { MediaError } from '../media';
+import { MAX_VISITOR_PHOTO_BYTES, MediaError } from '../media';
 import { activeStoryMap } from '../stories';
 
 const MAX_TEXT = 2000;
@@ -70,7 +70,7 @@ export function chatRoutes({ db, config, media, replies, aiConnected, budget }: 
     const mode = (MODES as string[]).includes(String(form.mode)) ? (String(form.mode) as PhotoMode) : 'keep';
     let saved;
     try {
-      saved = await media.saveFile('uploads', form.photo);
+      saved = await media.saveFile('uploads', form.photo, MAX_VISITOR_PHOTO_BYTES);
     } catch (err) {
       if (err instanceof MediaError) return c.json({ error: err.message }, 400);
       throw err;

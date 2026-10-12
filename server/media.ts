@@ -4,7 +4,16 @@ import path from 'node:path';
 import { imageSize } from 'image-size';
 import type { Storage } from './storage';
 
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MB = 1024 * 1024;
+/** Largest photo stored from any source (the admin page, the bucket's library/ folder). */
+export const MAX_UPLOAD_BYTES = 10 * MB;
+/**
+ * Largest photo a visitor may send. The chat shrinks photos to a JPEG of at most 1568px before
+ * sending, which comes to well under 2 MB.
+ */
+export const MAX_VISITOR_PHOTO_BYTES = 5 * MB;
+
+const tooLarge = (max: number) => new MediaError(`That photo is too large (${max / MB} MB max).`);
 
 export type ImageMime = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
 
@@ -58,7 +67,7 @@ export class MediaStore {
 
   /** Validates an uploaded image and stores it under `prefix/`. */
   async save(prefix: 'uploads' | 'library' | 'stories', data: Uint8Array) {
-    if (data.byteLength > MAX_UPLOAD_BYTES) throw new MediaError('That photo is too large (10 MB max).');
+    if (data.byteLength > MAX_UPLOAD_BYTES) throw tooLarge(MAX_UPLOAD_BYTES);
     const mime = sniffImage(data);
     if (!mime) throw new MediaError('Only JPEG, PNG, WebP or GIF photos can be sent.');
     const { width, height } = dimensions(data);
@@ -67,8 +76,8 @@ export class MediaStore {
     return { key, mime, width, height };
   }
 
-  async saveFile(prefix: 'uploads' | 'library' | 'stories', file: File) {
-    if (file.size > MAX_UPLOAD_BYTES) throw new MediaError('That photo is too large (10 MB max).');
+  async saveFile(prefix: 'uploads' | 'library' | 'stories', file: File, maxBytes = MAX_UPLOAD_BYTES) {
+    if (file.size > maxBytes) throw tooLarge(maxBytes);
     return this.save(prefix, new Uint8Array(await file.arrayBuffer()));
   }
 

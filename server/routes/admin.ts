@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { type AdminMeDTO, type AdminStoryDTO, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
+import { type AdminMeDTO, type AdminStoryDTO, PHOTOS_PER_UPLOAD, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
 import type { Deps } from '../app';
 import type { LibraryPhotoRow, StoryRow } from '../db';
 import { nowIso } from '../db';
@@ -126,10 +126,13 @@ export function adminRoutes({ db, config, media, responder, budget }: Deps) {
     const form = await c.req.parseBody({ all: true });
     const files = ([] as unknown[]).concat(form.photo ?? []).filter((f): f is File => f instanceof File);
     if (files.length === 0) return c.json({ error: 'Choose at least one photo.' }, 400);
+    if (files.length > PHOTOS_PER_UPLOAD) {
+      return c.json({ error: `Add up to ${PHOTOS_PER_UPLOAD} photos per request.` }, 400);
+    }
     const description = typeof form.description === 'string' ? form.description : undefined;
     const added: LibraryPhotoRow[] = [];
     try {
-      for (const file of files.slice(0, 20)) {
+      for (const file of files) {
         added.push(
           await addLibraryPhoto(db, media, responder, new Uint8Array(await file.arrayBuffer()), files.length === 1 ? description : undefined),
         );

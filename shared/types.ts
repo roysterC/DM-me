@@ -114,3 +114,6 @@ export interface OpenPhotoDTO {
 }
 
 export const STORY_BGS: StoryBg[] = ['violet', 'sunset', 'ocean', 'forest'];
+
+/** Photos per request when adding to Alisa's camera roll; the admin page sends more in turns. */
+export const PHOTOS_PER_UPLOAD = 5;

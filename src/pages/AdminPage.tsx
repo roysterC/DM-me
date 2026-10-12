@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { type AdminMeDTO, type AdminStoryDTO, type LibraryPhotoDTO, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
+import { type AdminMeDTO, type AdminStoryDTO, type LibraryPhotoDTO, PHOTOS_PER_UPLOAD, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { IconBack } from '../components/Icons';
 import { prepareImage } from '../lib/image';
@@ -144,15 +144,22 @@ function CameraRoll({ storage }: { storage: 'local' | 's3' }) {
     setBusy(files.length > 1 ? `Uploading and describing ${files.length} photos…` : 'Uploading…');
     setError(null);
     setNote(null);
+    let added = 0;
     try {
       const blobs = await Promise.all(files.map(async (f) => (await prepareImage(f)).blob));
-      await api.admin.addPhotos(blobs, files.length === 1 ? description : '');
+      // A few photos per request, so the server never holds a large upload in memory.
+      for (; added < blobs.length; added += PHOTOS_PER_UPLOAD) {
+        if (added > 0) setBusy(`Uploading and describing photos… ${added} of ${blobs.length} done`);
+        await api.admin.addPhotos(blobs.slice(added, added + PHOTOS_PER_UPLOAD), files.length === 1 ? description : '');
+      }
       setFiles([]);
       setDescription('');
       (e.target as HTMLFormElement).reset();
       await load();
     } catch (err) {
       setError(message(err, 'Upload failed.'));
+      // Photos in earlier requests (or earlier in this one) may have been added.
+      await load();
     } finally {
       setBusy(null);
     }

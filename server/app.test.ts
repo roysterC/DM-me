@@ -546,6 +546,52 @@ describe('admin', () => {
   });
 });
 
+describe('request size limits', () => {
+  /** The test JPEG padded with zeros to `bytes`; still a valid photo as far as the server can tell. */
+  const padded = (bytes: number) => {
+    const data = new Uint8Array(bytes);
+    data.set(JPEG);
+    return new File([data], 'big.jpg', { type: 'image/jpeg' });
+  };
+  const MB = 1024 * 1024;
+
+  it('takes only small bodies on routes that expect JSON', async () => {
+    const me = setup().browser();
+    const res = await me('POST', '/api/chat/messages', { text: 'x'.repeat(100_000) });
+    expect(res.status).toBe(413);
+    expect((await me('POST', '/api/chat/messages', { text: 'x'.repeat(2000) })).status).toBe(200);
+  });
+
+  it('takes visitor photos up to 5 MB', async () => {
+    const me = setup().browser();
+    const form = (bytes: number) => {
+      const f = new FormData();
+      f.set('photo', padded(bytes));
+      return f;
+    };
+    expect((await me('POST', '/api/chat/photos', form(4 * MB))).status).toBe(200);
+    expect((await me('POST', '/api/chat/photos', form(6 * MB))).status).toBe(413);
+  });
+
+  it('takes a few camera-roll photos per request, and only from an admin', async () => {
+    const t = setup({ adminPassword: 'open sesame' });
+    const form = (n: number) => {
+      const f = new FormData();
+      for (let i = 0; i < n; i++) f.append('photo', new File([JPEG], `${i}.jpg`));
+      return f;
+    };
+    const guest = t.browser();
+    expect((await guest('POST', '/api/admin/photos', form(5))).status).toBe(403);
+
+    const admin = t.browser();
+    await admin('POST', '/api/admin/login', { password: 'open sesame' });
+    expect((await json<{ photos: unknown[] }>(await admin('POST', '/api/admin/photos', form(5)))).photos).toHaveLength(5);
+    const tooMany = await admin('POST', '/api/admin/photos', form(6));
+    expect(tooMany.status).toBe(400);
+    expect((await json<{ error: string }>(tooMany)).error).toMatch(/up to 5/);
+  });
+});
+
 describe('buildConversation', () => {
   it('replays Alisa’s turns in her reply format, hearts and photo references included', async () => {
     const base = {

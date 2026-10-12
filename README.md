@@ -142,7 +142,8 @@ How Alisa replies:
 Privacy and safety:
 
 - No accounts or passwords for visitors. The visitor cookie is random and stored only as a hash. Clearing cookies starts a fresh chat.
-- Rate limits per visitor and per IP address, plus the daily reply cap.
+- Rate limits per visitor and per IP address, plus the daily reply cap and the site-wide daily Claude budget.
+- Size limits on every request, since bodies are read into memory: 64 KB for messages and other JSON, 5 MB for a photo a visitor sends, and 10 MB per photo on the admin page (up to 5 photos per request; the page sends larger selections in turns).
 - Uploads are checked by their actual bytes (JPEG, PNG, WebP, GIF only). Photos are only reachable through signed links that expire; view-once links last a minute.
 - The browser re-encodes photos to JPEG at most 1568px on the long edge before upload, which also strips location metadata.
 - A web page can't stop screenshots, so "view once" limits opening, not copying.
