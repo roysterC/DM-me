@@ -68,8 +68,12 @@ export function visitor(db: DB): MiddlewareHandler<AppEnv> {
 
 const ADMIN_DAYS = 30;
 
-function adminSignature(secret: string, exp: number) {
-  return crypto.createHmac('sha256', secret).update(`admin\n${exp}`).digest('base64url');
+/**
+ * Signs the admin cookie over the password too, so changing ADMIN_PASSWORD signs every browser
+ * out, including any that should no longer have access.
+ */
+function adminSignature(secret: string, password: string, exp: number) {
+  return crypto.createHmac('sha256', secret).update(`admin\n${sha256(password)}\n${exp}`).digest('base64url');
 }
 
 export function passwordMatches(given: string, expected: string): boolean {
@@ -79,9 +83,9 @@ export function passwordMatches(given: string, expected: string): boolean {
   return crypto.timingSafeEqual(a, b);
 }
 
-export function grantAdmin(c: Context, secret: string) {
+export function grantAdmin(c: Context, secret: string, password: string) {
   const exp = Math.floor(Date.now() / 1000) + ADMIN_DAYS * 86_400;
-  setCookie(c, ADMIN_COOKIE, `${exp}.${adminSignature(secret, exp)}`, {
+  setCookie(c, ADMIN_COOKIE, `${exp}.${adminSignature(secret, password, exp)}`, {
     httpOnly: true,
     sameSite: 'Strict',
     secure: isHttps(c),
@@ -99,7 +103,7 @@ export function isAdmin(c: Context, secret: string, password: string): boolean {
   const [expStr, sig] = (getCookie(c, ADMIN_COOKIE) ?? '').split('.');
   const exp = Number(expStr);
   if (!sig || !Number.isFinite(exp) || exp * 1000 < Date.now()) return false;
-  const expected = Buffer.from(adminSignature(secret, exp));
+  const expected = Buffer.from(adminSignature(secret, password, exp));
   const given = Buffer.from(sig);
   return expected.length === given.length && crypto.timingSafeEqual(expected, given);
 }

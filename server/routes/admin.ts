@@ -30,7 +30,7 @@ export function adminRoutes({ db, config, media, responder, budget }: Deps) {
     if (!passwordMatches(String(body.password ?? ''), config.adminPassword)) {
       return c.json({ error: 'Wrong password.' }, 401);
     }
-    grantAdmin(c, config.secret);
+    grantAdmin(c, config.secret, config.adminPassword);
     return c.json({ ok: true });
   });
 

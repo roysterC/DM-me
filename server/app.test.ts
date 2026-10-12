@@ -493,6 +493,18 @@ describe('stories', () => {
 });
 
 describe('admin', () => {
+  it('signs every browser out when ADMIN_PASSWORD changes', async () => {
+    const login = await setup({ adminPassword: 'open sesame' }).browser()('POST', '/api/admin/login', { password: 'open sesame' });
+    const cookie = login.headers.getSetCookie()[0].split(';')[0];
+    const signedIn = async (password: string) => {
+      // A restarted server with this password (the secret stays the same).
+      const res = await setup({ adminPassword: password }).app.request('http://localhost/api/admin/me', { headers: { cookie } });
+      return (await json<{ admin: boolean }>(res)).admin;
+    };
+    expect(await signedIn('open sesame')).toBe(true);
+    expect(await signedIn('a new password')).toBe(false);
+  });
+
   it('stays locked without ADMIN_PASSWORD and with a wrong one', async () => {
     const off = setup();
     expect((await off.browser()('POST', '/api/admin/login', { password: '' })).status).toBe(403);

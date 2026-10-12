@@ -61,7 +61,7 @@ Backblaze B2, AWS S3, Supabase Storage (its S3 endpoint) and MinIO work the same
 |---|---|---|
 | `ANTHROPIC_API_KEY` | none | Required for Alisa to reply. |
 | `ANTHROPIC_MODEL` | `claude-haiku-5-5` | The Claude model Alisa uses. |
-| `ADMIN_PASSWORD` | none | Unlocks `/admin`. Without it the admin page is off. |
+| `ADMIN_PASSWORD` | none | Unlocks `/admin`. Without it the admin page is off. A sign-in lasts 30 days; changing the password (and restarting) signs every browser out. |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | none | Photo storage bucket (above). `S3_PATH_STYLE=false` for providers that need `bucket.endpoint` URLs. |
 | `PORT` | `3000` | Port for `npm start`. |
 | `HOST` | `0.0.0.0` | Interface to listen on. `127.0.0.1` behind a reverse proxy. |
