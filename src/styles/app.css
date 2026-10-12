@@ -101,7 +101,8 @@ a {
   outline-offset: 2px;
 }
 
-.sr-only {
+.sr-only,
+.until-focus:not(:focus-visible) {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -473,10 +474,27 @@ a {
     color: var(--fg);
   }
 }
+/* Touch screens reply by swiping; the button stays for screen readers (and shows if focused). */
 @media (hover: none) {
-  .msg-reply-btn {
-    display: none;
+  .msg-reply-btn:not(:focus-visible) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
   }
+}
+.msg-heart-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--field);
+  color: var(--fg);
+  font-size: 13px;
+}
+[role='dialog']:focus {
+  outline: none;
 }
 .msg-mine {
   justify-content: flex-end;

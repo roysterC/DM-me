@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { PersonaDTO, StoryDTO } from '../../shared/types';
 import { preloadImage } from '../lib/preload';
 import { shortAge } from '../lib/time';
+import { useDialog } from '../lib/useDialog';
 import { Avatar } from './Avatar';
 import { IconClose, IconHeart, IconSend } from './Icons';
 import { TimerBar, useHoldToPause } from './TimerBar';
@@ -53,6 +54,8 @@ export function StoryViewer({ stories, startIndex, persona, seconds = 5, onClose
   });
 
   const { consumeHold, ...holdHandlers } = useHoldToPause(setHeld);
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialog(dialog, onClose, { escape: false });
   // The list refreshes every few minutes; if the story on screen expired meanwhile, close.
   useEffect(() => {
     if (!story) onClose();
@@ -75,7 +78,7 @@ export function StoryViewer({ stories, startIndex, persona, seconds = 5, onClose
   };
 
   return (
-    <div className="overlay story-viewer" role="dialog" aria-modal="true" aria-label={`${persona.name}’s story`}>
+    <div ref={dialog} className="overlay story-viewer" role="dialog" aria-modal="true" aria-label={`${persona.name}’s story`}>
       <div className="story-stage">
         {story.kind === 'photo' && story.mediaUrl ? (
           <img

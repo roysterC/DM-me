@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { PersonaDTO, PhotoMode } from '../../shared/types';
 import type { PreparedImage } from '../lib/image';
+import { useDialog } from '../lib/useDialog';
 import { Avatar } from './Avatar';
 import { IconArrow, IconClose, IconDownload, IconKeep, IconOnce, IconReplay } from './Icons';
 
@@ -29,14 +30,11 @@ export function SendPhotoSheet({ image, persona, defaultMode, onCancel, onSend }
         ? `${name} can open it, then replay it one more time.`
         : 'Stays in the chat like a normal photo.';
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onCancel();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialog(dialog, onCancel);
 
   return (
-    <div className="overlay send-photo" role="dialog" aria-modal="true" aria-label="Send photo">
+    <div ref={dialog} className="overlay send-photo" role="dialog" aria-modal="true" aria-label="Send photo">
       <div className="send-photo-stage">
         <img src={image.url} alt="The photo you’re about to send" />
         <div className="send-photo-top">

@@ -523,7 +523,8 @@ export function ChatPage() {
         </button>
       </header>
 
-      <div className="thread" ref={listRef}>
+      {/* A log: screen readers announce new messages as they arrive. */}
+      <div className="thread" ref={listRef} role="log" aria-label={`Messages with ${persona.name}`}>
         <div className="intro">
           <Avatar
             persona={persona}

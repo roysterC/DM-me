@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { PersonaDTO } from '../../shared/types';
 import { ApiError } from '../api';
+import { useDialog } from '../lib/useDialog';
 import { Avatar, type RingState } from './Avatar';
 
 interface Props {
@@ -17,11 +18,8 @@ export function InfoSheet({ persona, ring, onViewStory, onDeleteChat, onClose }:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const dialog = useRef<HTMLDivElement>(null);
+  useDialog(dialog, onClose);
 
   const remove = async () => {
     setBusy(true);
@@ -36,7 +34,7 @@ export function InfoSheet({ persona, ring, onViewStory, onDeleteChat, onClose }:
   };
 
   return (
-    <div className="overlay sheet-wrap" role="dialog" aria-modal="true" aria-label={`About ${persona.name}`}>
+    <div ref={dialog} className="overlay sheet-wrap" role="dialog" aria-modal="true" aria-label={`About ${persona.name}`}>
       <button type="button" className="sheet-backdrop" onClick={onClose} aria-label="Close" />
       <div className="sheet">
         <div className="sheet-grip" aria-hidden="true" />
