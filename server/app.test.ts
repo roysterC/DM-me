@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import type { ChatDTO, LibraryPhotoDTO, MessageDTO, OpenPhotoDTO, StoryDTO } from '../shared/types';
 import { buildConversation } from './ai/context';
@@ -8,6 +9,7 @@ import { createApp } from './app';
 import { pruneVisitors } from './cleanup';
 import { loadConfig } from './config';
 import { type MessageRow, openDb } from './db';
+import { clientInfo, ProxyTrust } from './identity';
 import { S3Storage } from './storage';
 
 const JPEG = new Uint8Array(fs.readFileSync(path.resolve('server/assets/skillet.jpg')));
@@ -688,6 +690,49 @@ describe('visitor cleanup', () => {
     expect(cookie).toMatch(/dmme_visitor=.*Max-Age=34560000/);
     expect(lastVisitor(t)).toBe(id);
     expect((await json<ChatDTO>(await me('GET', '/api/chat'))).messages).toHaveLength(1);
+  });
+});
+
+describe('client address behind a proxy', () => {
+  /** A request arriving over a socket from `peer`, with these headers. */
+  const from = (peer: string, headers: Record<string, string> = {}) => ({
+    init: { headers: { host: 'dm-me.test', ...headers } },
+    env: { incoming: { socket: { remoteAddress: peer } } },
+  });
+  const seen = async (spec: string | undefined, req: ReturnType<typeof from>) => {
+    const app = new Hono();
+    app.use('*', clientInfo(new ProxyTrust(spec)));
+    app.get('/', (c) => c.json(c.get('client')));
+    return json<{ ip: string; https: boolean; host: string }>(await app.request('http://dm-me.test/', req.init, req.env));
+  };
+  const spoof = { 'x-forwarded-for': '6.6.6.6', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'evil.test' };
+
+  it('ignores forwarding headers from a connection that isn’t a trusted proxy', async () => {
+    expect(await seen(undefined, from('203.0.113.5', spoof))).toEqual({ ip: '203.0.113.5', https: false, host: 'dm-me.test' });
+  });
+
+  it('believes a proxy on this machine, reading the address it added, not ones the client made up', async () => {
+    const viaCaddy = from('::ffff:127.0.0.1', { ...spoof, 'x-forwarded-for': '6.6.6.6, 198.51.100.7' });
+    expect(await seen(undefined, viaCaddy)).toEqual({ ip: '198.51.100.7', https: true, host: 'evil.test' });
+    expect((await seen('off', viaCaddy)).ip).toBe('127.0.0.1');
+  });
+
+  it('follows a chain of trusted proxies from TRUST_PROXY', async () => {
+    const chain = from('10.0.0.2', { 'x-forwarded-for': '6.6.6.6, 198.51.100.7, 10.1.2.3' });
+    expect((await seen('loopback, 10.0.0.0/8', chain)).ip).toBe('198.51.100.7');
+    expect((await seen(undefined, chain)).ip).toBe('10.0.0.2');
+    expect(() => new ProxyTrust('10.0.0.0/33')).toThrow(/TRUST_PROXY/);
+    expect(() => new ProxyTrust('caddy')).toThrow(/TRUST_PROXY/);
+  });
+
+  it('won’t let a made-up address dodge the admin login limit', async () => {
+    const t = setup({ adminPassword: 'open sesame' });
+    const attempt = (i: number) => {
+      const req = from('203.0.113.5', { origin: 'http://dm-me.test', 'content-type': 'application/json', 'x-forwarded-for': `6.6.6.${i}` });
+      return t.app.request('http://dm-me.test/api/admin/login', { ...req.init, method: 'POST', body: '{"password":"guess"}' }, req.env);
+    };
+    for (let i = 0; i < 10; i++) expect((await attempt(i)).status).toBe(401);
+    expect((await attempt(10)).status).toBe(429);
   });
 });
 

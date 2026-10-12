@@ -9,7 +9,7 @@ import { Budget } from './budget';
 import { ReplyService } from './chat';
 import type { Config } from './config';
 import type { DB } from './db';
-import { type AppEnv, sameOrigin, SendLimiter, visitor } from './identity';
+import { type AppEnv, clientInfo, ProxyTrust, sameOrigin, SendLimiter, visitor } from './identity';
 import { seedLibrary } from './library';
 import { PHOTOS_PER_UPLOAD } from '../shared/types';
 import { MAX_UPLOAD_BYTES, MAX_VISITOR_PHOTO_BYTES, MediaStore } from './media';
@@ -80,6 +80,7 @@ export function createApp(db: DB, config: Config, responder: Responder | null, s
     : [];
 
   const app = new Hono();
+  app.use('*', clientInfo(new ProxyTrust(config.trustProxy)));
   app.use(
     '*',
     secureHeaders({

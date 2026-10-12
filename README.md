@@ -65,6 +65,7 @@ Backblaze B2, AWS S3, Supabase Storage (its S3 endpoint) and MinIO work the same
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | none | Photo storage bucket (above). `S3_PATH_STYLE=false` for providers that need `bucket.endpoint` URLs. |
 | `PORT` | `3000` | Port for `npm start`. |
 | `HOST` | `0.0.0.0` | Interface to listen on. `127.0.0.1` behind a reverse proxy. |
+| `TRUST_PROXY` | `loopback` | Which connections may say who the visitor is (`X-Forwarded-For`, `-Proto`, `-Host`), as used by rate limits and secure cookies. The default trusts a proxy on the same machine, like the Caddy that `deploy/setup.sh` sets up. A proxy elsewhere (say, in another Docker container): list its addresses or ranges, e.g. `loopback,172.16.0.0/12`. `off` trusts none. Headers from anyone else are ignored, so they can't dodge the per-IP limits. |
 | `DATA_DIR` | `./data` | SQLite database, and photos when no bucket is set. |
 | `DAILY_REPLY_LIMIT` | `200` | Alisa replies per visitor per day, to cap API spend on a public site. |
 | `DAILY_BUDGET_USD` | `2` | Most the whole site spends on Claude per day (UTC), in US dollars, however many visitors there are. Once it's spent, Alisa stops replying until midnight UTC. The admin page shows today's spend. `0` = no limit. |
@@ -95,7 +96,7 @@ docker run -p 3000:3000 -v dm-me-data:/data --env-file .env dm-me
 
 Wherever it runs:
 
-- Put it behind **HTTPS**. Browsers only allow the camera on HTTPS, and cookies are marked secure when the request arrives over HTTPS, including behind a proxy that sets `X-Forwarded-Proto`. Set `HOST=127.0.0.1` so only the proxy can reach the app.
+- Put it behind **HTTPS**. Browsers only allow the camera on HTTPS, and cookies are marked secure when the request arrives over HTTPS, including behind a proxy that sets `X-Forwarded-Proto`. Set `HOST=127.0.0.1` so only the proxy can reach the app. If the proxy connects from another address (a separate container, another machine), set `TRUST_PROXY` to it, or every visitor counts as the proxy's address for rate limits.
 - Run **one server process**. Rate limits and the one-reply-at-a-time lock are kept in memory, and the database is a local SQLite file, so serverless hosts (Vercel, Cloudflare Workers) need changes first.
 - **Back up the database** (`DATA_DIR/dm-me.sqlite`). The VPS setup does this for you.
 

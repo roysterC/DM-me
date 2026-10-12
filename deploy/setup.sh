@@ -176,7 +176,7 @@ if [[ $MANAGE_CADDY == yes ]]; then
   if [[ -n $caddy_pid && $(stat -Lc %d:%i "/proc/$caddy_pid/root") != $(stat -Lc %d:%i /) ]]; then
     # Caddy inside a container: its files aren't this server's files, so don't touch them.
     printf '\nCaddy is running inside a container (Docker?), so setup will not change it.\n' >&2
-    printf 'Unless the container uses host networking, it reaches the app at the host address\n(e.g. host.docker.internal:%s, with HOST=0.0.0.0 added to %s) rather than 127.0.0.1.\n\n' "$PORT" "$ENV_FILE" >&2
+    printf 'Unless the container uses host networking, it reaches the app at the host address\n(e.g. host.docker.internal:%s, with HOST=0.0.0.0 and TRUST_PROXY=172.16.0.0/12 added to %s)\nrather than 127.0.0.1.\n\n' "$PORT" "$ENV_FILE" >&2
     manual_proxy_help >&2
     exit 1
   fi
