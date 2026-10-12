@@ -6,7 +6,7 @@ import type { ChatDTO, LibraryPhotoDTO, MessageDTO, OpenPhotoDTO, StoryDTO } fro
 import { buildConversation, visitorText } from './ai/context';
 import { FakeResponder } from './ai/responder';
 import { createApp } from './app';
-import { pruneVisitors } from './cleanup';
+import { pruneStories, pruneVisitors } from './cleanup';
 import { loadConfig } from './config';
 import { type MessageRow, openDb } from './db';
 import { clientInfo, ProxyTrust } from './identity';
@@ -677,6 +677,33 @@ describe('visitor cleanup', () => {
     // A forgotten browser just starts a new, empty chat.
     const chat = await json<ChatDTO>(await gone('GET', '/api/chat'));
     expect(chat.messages).toEqual([]);
+  });
+
+  it('removes stories a month after they expired, with their uploaded photos, but not from chats', async () => {
+    const t = setup({ adminPassword: 'open sesame' });
+    const admin = t.browser();
+    await admin('POST', '/api/admin/login', { password: 'open sesame' });
+    const form = new FormData();
+    form.set('kind', 'photo');
+    form.set('photo', new File([JPEG], 's.jpg'));
+    const posted = (await json<{ story: StoryDTO }>(await admin('POST', '/api/admin/stories', form))).story;
+    const key = (t.db.prepare('SELECT media_key FROM stories WHERE id = ?').get(posted.id) as { media_key: string }).media_key;
+    const me = t.browser();
+    await me('POST', `/api/stories/${posted.id}/view`);
+    await me('POST', `/api/stories/${posted.id}/reply`, { text: 'love this' });
+
+    // Expired 29 days ago: kept. Then 31 days ago: gone, with its photo and views.
+    const expire = (days: number) => t.db.prepare('UPDATE stories SET expires_at = ?').run(daysAgo(days));
+    expire(29);
+    expect(await pruneStories(t.db, t.deps.media)).toEqual({ stories: 0, photos: 0 });
+    expire(31);
+    const pruned = await pruneStories(t.db, t.deps.media);
+    expect(pruned.stories).toBeGreaterThanOrEqual(5);
+    expect(pruned.photos).toBe(1);
+    expect(await t.deps.media.storage.get(key)).toBeNull();
+    expect(t.db.prepare('SELECT COUNT(*) n FROM story_views').get()).toEqual({ n: 0 });
+    const chat = await json<ChatDTO>(await me('GET', '/api/chat'));
+    expect(chat.messages[0]).toMatchObject({ kind: 'story_reply', text: 'love this', story: { available: false } });
   });
 
   it('renews the cookie when a visitor comes back, so regulars keep their chat', async () => {

@@ -126,7 +126,7 @@ server/            Hono API on Node, SQLite via better-sqlite3
   media.ts         photo validation, signed links, small in-memory cache
   identity.ts      visitor cookie, admin password, rate limits
   budget.ts        what Claude costs per day, for DAILY_BUDGET_USD
-  cleanup.ts       forgets visitors who never wrote and chats whose cookie has expired
+  cleanup.ts       forgets visitors who never wrote, chats whose cookie has expired, and old stories
   routes/          chat, stories, media, admin
   assets/          sample photos
 src/               React web app (Vite)
@@ -147,7 +147,7 @@ How Alisa replies:
 Privacy and safety:
 
 - No accounts or passwords for visitors. The visitor cookie is random and stored only as a hash. Clearing cookies starts a fresh chat.
-- The cookie lasts 400 days from the latest visit. Every 6 hours the server forgets visitors who never sent a message and haven't been back for 30 days, and deletes chats (with the photos sent in them) whose cookie has expired, since nobody can open them any more.
+- The cookie lasts 400 days from the latest visit. Every 6 hours the server forgets visitors who never sent a message and haven't been back for 30 days, and deletes chats (with the photos sent in them) whose cookie has expired, since nobody can open them any more. Stories are deleted, with their photos, 30 days after they expire; chats keep their own copy of any story someone replied to.
 - Rate limits per visitor and per IP address, plus the daily reply cap and the site-wide daily Claude budget.
 - Size limits on every request, since bodies are read into memory: 64 KB for messages and other JSON, 5 MB for a photo a visitor sends, and 10 MB per photo on the admin page (up to 5 photos per request; the page sends larger selections in turns).
 - Uploads are checked by their actual bytes (JPEG, PNG, WebP, GIF only). Photos are only reachable through signed links that expire; view-once links last a minute.

@@ -6,6 +6,8 @@ import type { MediaStore } from './media';
 const DAY = 86_400_000;
 /** A visitor who never sent anything is forgotten after this long away (their story views and likes go too). */
 export const EMPTY_VISITOR_DAYS = 30;
+/** Expired stories stay listed on the admin page this long, then go with their photos. */
+export const OLD_STORY_DAYS = 30;
 
 export interface Pruned {
   emptyVisitors: number;
@@ -48,18 +50,40 @@ export async function pruneVisitors(db: DB, media: MediaStore, now = Date.now())
   return { emptyVisitors, expiredVisitors, photos: photos.length, replyCounts };
 }
 
+/**
+ * Removes stories that expired over OLD_STORY_DAYS ago, with the photos uploaded for them and
+ * their views and likes. Chats keep their own copy of a story someone replied to.
+ */
+export async function pruneStories(db: DB, media: MediaStore, now = Date.now()): Promise<{ stories: number; photos: number }> {
+  const before = new Date(now - OLD_STORY_DAYS * DAY).toISOString();
+  const old = db.prepare('SELECT id, media_key FROM stories WHERE expires_at < ?').all(before) as {
+    id: number;
+    media_key: string | null;
+  }[];
+  if (old.length === 0) return { stories: 0, photos: 0 };
+  db.prepare('DELETE FROM stories WHERE expires_at < ?').run(before);
+  // Sample stories use photos bundled with the app; only uploaded ones are deleted.
+  const photos = old.map((s) => s.media_key).filter((k): k is string => !!k?.startsWith('stories/'));
+  for (const key of photos) await media.remove(key).catch(() => {});
+  return { stories: old.length, photos: photos.length };
+}
+
 /** Prunes now and then every few hours, logging what it removed. */
 export function scheduleCleanup(db: DB, media: MediaStore, everyMs = 6 * 3_600_000) {
-  const run = () =>
-    pruneVisitors(db, media)
-      .then((p) => {
-        if (p.emptyVisitors || p.expiredVisitors) {
-          console.log(
-            `Cleanup: removed ${p.emptyVisitors} visitors who never sent a message and ${p.expiredVisitors} with expired cookies (${p.photos} photos).`,
-          );
-        }
-      })
-      .catch((err) => console.error('Cleanup failed', err));
+  const run = async () => {
+    try {
+      const p = await pruneVisitors(db, media);
+      if (p.emptyVisitors || p.expiredVisitors) {
+        console.log(
+          `Cleanup: removed ${p.emptyVisitors} visitors who never sent a message and ${p.expiredVisitors} with expired cookies (${p.photos} photos).`,
+        );
+      }
+      const s = await pruneStories(db, media);
+      if (s.stories) console.log(`Cleanup: removed ${s.stories} old stories (${s.photos} photos).`);
+    } catch (err) {
+      console.error('Cleanup failed', err);
+    }
+  };
   run();
   setInterval(run, everyMs).unref();
 }
