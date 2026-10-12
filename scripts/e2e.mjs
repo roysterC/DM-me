@@ -205,11 +205,11 @@ tp.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 const cdp = await phone.newCDPSession(tp);
 const touch = (type, x, y) =>
   cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
-/** Drags a finger from (x, y) by dx; with `hold`, stops before lifting it. */
-const drag = async (x, y, dx, { hold = false } = {}) => {
+/** Drags a finger from (x, y) by dx (and dy); with `hold`, stops before lifting it. */
+const drag = async (x, y, dx, { hold = false, dy = 0 } = {}) => {
   await touch('touchStart', x, y);
   for (let i = 1; i <= 12; i++) {
-    await touch('touchMove', x + (dx * i) / 12, y);
+    await touch('touchMove', x + (dx * i) / 12, y + (dy * i) / 12);
     await tp.waitForTimeout(16);
   }
   if (!hold) await touch('touchEnd', 0, 0);
@@ -280,6 +280,15 @@ await shotPhone('19-phone-times');
 await touch('touchEnd', 0, 0);
 await tp.waitForTimeout(400);
 if (Number(await time.evaluate((el) => getComputedStyle(el).opacity)) > 0.05) throw new Error('Times should hide on release');
+
+step('phone: a sideways swipe that wobbles holds, even where the browser could take it as a scroll (as on iPhone)');
+const relaxed = await tp.addStyleTag({ content: '.thread { touch-action: auto !important; }' });
+await drag(300, row.y + row.height / 2, -120, { hold: true, dy: 18 });
+const held = Number(await time.evaluate((el) => getComputedStyle(el).opacity));
+await touch('touchEnd', 0, 0);
+await tp.waitForTimeout(400);
+await relaxed.evaluate((el) => el.remove());
+if (held < 0.9) throw new Error(`The swipe was cancelled partway (times at opacity ${held})`);
 
 step('phone: swipe one of Alisa’s messages right to reply');
 const herBubble = await tp.locator('.msg-theirs .bubble').last().boundingBox();
