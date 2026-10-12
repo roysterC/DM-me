@@ -4,7 +4,7 @@ import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import type { ChatDTO, LibraryPhotoDTO, MessageDTO, OpenPhotoDTO, StoryDTO } from '../shared/types';
 import { buildConversation, visitorText } from './ai/context';
-import { FakeResponder } from './ai/responder';
+import { FakeResponder, parseReply } from './ai/responder';
 import { createApp } from './app';
 import { pruneStories, pruneVisitors } from './cleanup';
 import { loadConfig } from './config';
@@ -385,7 +385,16 @@ describe('photos', () => {
     await me('POST', '/api/chat/reply', {});
     const second = JSON.stringify(t.fake.calls[1].messages);
     expect(second).not.toContain('"type":"image"');
-    expect(second).toContain('view-once photo that you already viewed');
+    // All she has left of it is the note she made when she saw it, in her reply and in its place.
+    expect(second).toContain('view-once photo that you already viewed; you remember it showed: a golden-edged skillet');
+    expect(JSON.parse(t.fake.calls[1].messages[1].content as string).remember_photo).toBe('a golden-edged skillet');
+  });
+
+  it('reads the photo note from Alisa’s reply, and only keeps a real one', () => {
+    const base = { messages: ['ok'], reply_to_message: 'none', heart_latest_user_message: false, send_photo: 'none', send_photo_mode: 'keep' };
+    expect(parseReply(JSON.stringify({ ...base, remember_photo: '  their cat on a sofa ' }), []).photoMemory).toBe('their cat on a sofa');
+    expect(parseReply(JSON.stringify({ ...base, remember_photo: '' }), []).photoMemory).toBeNull();
+    expect(parseReply(JSON.stringify(base), []).photoMemory).toBeNull();
   });
 
   it('limits opens of photos Alisa sends: once means once, replay means twice', async () => {
@@ -779,6 +788,7 @@ describe('buildConversation', () => {
       read_at: null,
       reply_to_id: null,
       context_seq: null,
+      memory_text: null,
     };
     const rows: MessageRow[] = [
       { ...base, id: 1, sender: 'user', kind: 'text', text: 'got the job', heart_by_ai: 1, created_at: '2026-10-09T21:02:00.000Z' },
@@ -796,6 +806,7 @@ describe('buildConversation', () => {
       heart_latest_user_message: true,
       send_photo: 'p7',
       send_photo_mode: 'once',
+      remember_photo: '',
     });
     // Quote-replies both ways: theirs is spelled out, hers comes back as the reference she gave.
     expect(messages[2]).toEqual({
@@ -876,6 +887,7 @@ describe('races and limits around a reply', () => {
         read_at: null,
         reply_to_id: null,
         context_seq: null,
+        memory_text: null,
       }) satisfies MessageRow;
     const rows = [big(1, 'once'), big(2, 'keep'), big(3, 'keep'), big(4, 'once')];
     const media = { read: async () => new Uint8Array(6 * 1024 * 1024) };

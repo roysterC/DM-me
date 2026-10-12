@@ -37,6 +37,8 @@ export interface MessageRow {
    * its number when she reads it, hers when she writes it. Null until then (and on older rows).
    */
   context_seq: number | null;
+  /** For a disappearing photo the visitor sent: Alisa's note of what it showed, once she's seen it. */
+  memory_text: string | null;
 }
 
 export interface StoryRow {
@@ -169,6 +171,9 @@ const MIGRATIONS: string[] = [
   // Cleanup finds visitors who haven't been back for a while.
   `
   CREATE INDEX visitors_by_last_seen ON visitors (last_seen_at);
+  `,
+  `
+  ALTER TABLE messages ADD COLUMN memory_text TEXT;
   `,
 ];
 

@@ -169,7 +169,16 @@ function renderContent(m: UiMessage, radius: string, name: string, on: Pick<Prop
   if (mine) {
     // Your own view-once photo: you can't reopen it, you only see whether Alisa has.
     const opened = p.viewCount > 0;
-    const status = m.pending === 'sending' ? 'Sending…' : m.pending === 'failed' ? 'Not sent' : opened ? 'Opened' : 'Delivered';
+    const status =
+      m.pending === 'sending'
+        ? 'Sending…'
+        : m.pending === 'failed'
+          ? 'Not sent'
+          : p.mode === 'replay' && p.viewCount > 1
+            ? 'Replayed'
+            : opened
+              ? 'Opened'
+              : 'Delivered';
     return (
       <div className={`eph ${opened ? 'eph-spent' : 'eph-sent sent-fill'}`} style={style}>
         <span className="eph-icon">
@@ -192,7 +201,7 @@ function renderContent(m: UiMessage, radius: string, name: string, on: Pick<Prop
         </span>
         <span className="eph-text">
           <span className="eph-title">Photo</span>
-          <span className="eph-sub">Opened</span>
+          <span className="eph-sub">{p.mode === 'replay' && p.viewCount > 1 ? 'Replayed' : 'Opened'}</span>
         </span>
       </div>
     );

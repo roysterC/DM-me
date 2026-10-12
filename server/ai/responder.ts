@@ -9,6 +9,8 @@ export interface PersonaReply {
   heartLatest: boolean;
   /** A camera-roll reference such as "p12". */
   photo: { ref: string; mode: PhotoMode } | null;
+  /** What the visitor's disappearing photo(s) seen this turn showed, for her to remember them by. */
+  photoMemory: string | null;
 }
 
 export interface ReplyRequest {
@@ -41,8 +43,13 @@ export function replySchema(photoRefs: string[]) {
       heart_latest_user_message: { type: 'boolean' },
       send_photo: { type: 'string', enum: ['none', ...photoRefs] },
       send_photo_mode: { type: 'string', enum: ['keep', 'once', 'replay'] },
+      remember_photo: {
+        type: 'string',
+        description:
+          'Only when they sent a view-once or replayable photo you can see this turn: one short line on what it shows, which is all you will remember of it afterwards. Otherwise "".',
+      },
     },
-    required: ['messages', 'reply_to_message', 'heart_latest_user_message', 'send_photo', 'send_photo_mode'],
+    required: ['messages', 'reply_to_message', 'heart_latest_user_message', 'send_photo', 'send_photo_mode', 'remember_photo'],
     additionalProperties: false,
   };
 }
@@ -64,7 +71,14 @@ export function parseReply(raw: string, photoRefs: string[]): PersonaReply {
   const mode: PhotoMode =
     data.send_photo_mode === 'once' || data.send_photo_mode === 'replay' ? data.send_photo_mode : 'keep';
   const replyTo = typeof data.reply_to_message === 'string' && /^m\d+$/.test(data.reply_to_message) ? data.reply_to_message : null;
-  return { messages, replyTo, heartLatest: data.heart_latest_user_message === true, photo: ref ? { ref, mode } : null };
+  const memory = typeof data.remember_photo === 'string' ? data.remember_photo.trim().slice(0, 300) : '';
+  return {
+    messages,
+    replyTo,
+    heartLatest: data.heart_latest_user_message === true,
+    photo: ref ? { ref, mode } : null,
+    photoMemory: memory || null,
+  };
 }
 
 const textOf = (content: Anthropic.ContentBlock[]) =>
@@ -114,7 +128,7 @@ export class ClaudeResponder implements Responder {
       messages,
     });
     if (response.stop_reason === 'refusal') {
-      return { messages: ['I can’t help with that one.'], replyTo: null, heartLatest: false, photo: null };
+      return { messages: ['I can’t help with that one.'], replyTo: null, heartLatest: false, photo: null, photoMemory: null };
     }
     const reply = parseReply(textOf(response.content), photoRefs);
     if (reply.messages.length === 0 && !reply.photo) {
@@ -175,6 +189,7 @@ export class FakeResponder implements Responder {
       replyTo: lower.includes('quote me') ? (/\[(m\d+) ·/.exec(raw)?.[1] ?? null) : null,
       heartLatest: sawImage || lower.includes('heart'),
       photo: wantsPhoto ? { ref: req.photoRefs[0], mode: lower.includes('replay') ? 'replay' : 'once' } : null,
+      photoMemory: sawImage ? 'a golden-edged skillet' : null,
     };
   }
 

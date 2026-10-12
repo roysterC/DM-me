@@ -80,7 +80,7 @@ export async function buildConversation(
       for (const r of group) blocks.push(...userBlocks(r, images.get(r.id), timeZone, find));
       turns.push({ role: 'user', content: blocks });
     } else {
-      turns.push({ role: 'assistant', content: assistantJson(group, lastUserRow(rows, start), refByKey) });
+      turns.push({ role: 'assistant', content: assistantJson(group, rows.slice(0, start), refByKey) });
     }
   }
 
@@ -132,8 +132,9 @@ function userBlocks(
       { type: 'text', text: note },
     ];
   }
+  const remembered = r.memory_text ? `; you remember it showed: ${r.memory_text}` : '';
   const note = ephemeral
-    ? `${stamp} (sent a view-once photo that you already viewed)`
+    ? `${stamp} (sent a view-once photo that you already viewed${remembered})`
     : `${stamp} (sent a photo earlier in the chat; it's no longer attached)`;
   return [{ type: 'text', text: note }];
 }
@@ -146,12 +147,13 @@ export function visitorText(text: string | null): string {
   return (text ?? '').replace(/\[(\s*m\d+\s*·)/g, '($1');
 }
 
-function lastUserRow(rows: MessageRow[], beforeIndex: number): MessageRow | null {
-  for (let j = beforeIndex - 1; j >= 0; j--) if (rows[j].sender === 'user') return rows[j];
-  return null;
-}
-
-function assistantJson(group: MessageRow[], prevUser: MessageRow | null, refByKey: Map<string, string>): string {
+/** Alisa's turn as the JSON she wrote it in. `before` is the chat up to her turn. */
+function assistantJson(group: MessageRow[], before: MessageRow[], refByKey: Map<string, string>): string {
+  const prevUser = before.findLast((r) => r.sender === 'user') ?? null;
+  // The visitor's messages she was answering, for what she noted about their photos.
+  let i = before.length;
+  while (i > 0 && before[i - 1].sender === 'user') i--;
+  const memory = before.slice(i).find((r) => r.memory_text)?.memory_text ?? '';
   const messages: string[] = [];
   let sendPhoto = 'none';
   let mode = 'keep';
@@ -170,5 +172,6 @@ function assistantJson(group: MessageRow[], prevUser: MessageRow | null, refByKe
     heart_latest_user_message: prevUser?.heart_by_ai === 1,
     send_photo: sendPhoto,
     send_photo_mode: mode,
+    remember_photo: memory,
   });
 }

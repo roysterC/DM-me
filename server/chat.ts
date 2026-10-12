@@ -212,7 +212,7 @@ export class ReplyService {
       : null;
     const quoteFor = (i: number) => (i === 0 ? quoted : null);
     const keyOf = this.db.prepare('SELECT media_key FROM messages WHERE id = ?');
-    const markOpened = this.db.prepare('UPDATE messages SET view_count = view_count + 1 WHERE id = ?');
+    const markOpened = this.db.prepare('UPDATE messages SET view_count = view_count + 1, memory_text = COALESCE(?, memory_text) WHERE id = ?');
 
     const toDelete: string[] = [];
     const saved = this.db.transaction(() => {
@@ -221,7 +221,7 @@ export class ReplyService {
       if (dropped() || !this.db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(conversationId)) return false;
       // Alisa has now seen the view-once photos; they can't be opened again.
       for (const id of opening) {
-        markOpened.run(id);
+        markOpened.run(reply.photoMemory, id);
         const row = keyOf.get(id) as { media_key: string | null } | undefined;
         if (row?.media_key) toDelete.push(row.media_key);
       }
