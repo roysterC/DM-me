@@ -5,6 +5,7 @@ import type { ChatDTO, LibraryPhotoDTO, MessageDTO, OpenPhotoDTO, StoryDTO } fro
 import { buildConversation } from './ai/context';
 import { FakeResponder } from './ai/responder';
 import { createApp } from './app';
+import { pruneVisitors } from './cleanup';
 import { loadConfig } from './config';
 import { type MessageRow, openDb } from './db';
 import { S3Storage } from './storage';
@@ -607,6 +608,74 @@ describe('request size limits', () => {
     const tooMany = await admin('POST', '/api/admin/photos', form(6));
     expect(tooMany.status).toBe(400);
     expect((await json<{ error: string }>(tooMany)).error).toMatch(/up to 5/);
+  });
+});
+
+describe('visitor cleanup', () => {
+  const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+  const lastVisitor = (t: ReturnType<typeof setup>) =>
+    (t.db.prepare('SELECT MAX(id) id FROM visitors').get() as { id: number }).id;
+  const setSeen = (t: ReturnType<typeof setup>, id: number, iso: string) =>
+    t.db.prepare('UPDATE visitors SET last_seen_at = ? WHERE id = ?').run(iso, id);
+  const exists = (t: ReturnType<typeof setup>, id: number) => !!t.db.prepare('SELECT 1 FROM visitors WHERE id = ?').get(id);
+
+  it('forgets visitors who never wrote, and chats whose cookie has expired, with their photos', async () => {
+    const t = setup();
+
+    // Opened the chat and looked at a story, but never wrote: gone after 30 days away.
+    const lurker = t.browser();
+    const [story] = (await json<{ stories: StoryDTO[] }>(await lurker('GET', '/api/stories'))).stories;
+    await lurker('POST', `/api/stories/${story.id}/view`);
+    const lurkerId = lastVisitor(t);
+    setSeen(t, lurkerId, daysAgo(31));
+    await t.browser()('GET', '/api/chat');
+    const recentLurkerId = lastVisitor(t);
+    setSeen(t, recentLurkerId, daysAgo(29));
+
+    // Wrote to Alisa: kept until the cookie has expired.
+    const chatter = t.browser();
+    await chatter('POST', '/api/chat/messages', { text: 'hi' });
+    const chatterId = lastVisitor(t);
+    setSeen(t, chatterId, daysAgo(399));
+    const gone = t.browser();
+    const form = new FormData();
+    form.set('photo', new File([JPEG], 'p.jpg', { type: 'image/jpeg' }));
+    const photo = (await json<{ message: MessageDTO }>(await gone('POST', '/api/chat/photos', form))).message;
+    const goneId = lastVisitor(t);
+    const key = (t.db.prepare('SELECT media_key FROM messages WHERE id = ?').get(photo.id) as { media_key: string }).media_key;
+    setSeen(t, goneId, daysAgo(402));
+
+    t.db.prepare('INSERT INTO reply_counts (visitor_id, day, count) VALUES (?, ?, 3), (?, ?, 1)').run(
+      chatterId,
+      daysAgo(1).slice(0, 10),
+      chatterId,
+      daysAgo(0).slice(0, 10),
+    );
+
+    expect(await pruneVisitors(t.db, t.deps.media)).toEqual({ emptyVisitors: 1, expiredVisitors: 1, photos: 1, replyCounts: 1 });
+    expect([lurkerId, recentLurkerId, chatterId, goneId].map((id) => exists(t, id))).toEqual([false, true, true, false]);
+    expect(t.db.prepare('SELECT COUNT(*) n FROM story_views').get()).toEqual({ n: 0 });
+    expect(await t.deps.media.storage.get(key)).toBeNull();
+    expect((t.db.prepare('SELECT day FROM reply_counts').all() as { day: string }[]).map((r) => r.day)).toEqual([
+      daysAgo(0).slice(0, 10),
+    ]);
+
+    // A forgotten browser just starts a new, empty chat.
+    const chat = await json<ChatDTO>(await gone('GET', '/api/chat'));
+    expect(chat.messages).toEqual([]);
+  });
+
+  it('renews the cookie when a visitor comes back, so regulars keep their chat', async () => {
+    const t = setup();
+    const me = t.browser();
+    await me('POST', '/api/chat/messages', { text: 'hi' });
+    const id = lastVisitor(t);
+    expect((await me('GET', '/api/chat')).headers.getSetCookie()).toEqual([]);
+    setSeen(t, id, daysAgo(2));
+    const cookie = (await me('GET', '/api/chat')).headers.getSetCookie().join();
+    expect(cookie).toMatch(/dmme_visitor=.*Max-Age=34560000/);
+    expect(lastVisitor(t)).toBe(id);
+    expect((await json<ChatDTO>(await me('GET', '/api/chat'))).messages).toHaveLength(1);
   });
 });
 

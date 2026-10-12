@@ -166,6 +166,10 @@ const MIGRATIONS: string[] = [
     cost_micro_usd INTEGER NOT NULL
   );
   `,
+  // Cleanup finds visitors who haven't been back for a while.
+  `
+  CREATE INDEX visitors_by_last_seen ON visitors (last_seen_at);
+  `,
 ];
 
 export function openDb(dataDir: string): DB {

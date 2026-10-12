@@ -7,6 +7,8 @@ import { nowIso } from './db';
 
 export const VISITOR_COOKIE = 'dmme_visitor';
 export const ADMIN_COOKIE = 'dmme_admin';
+/** How long the visitor cookie lasts after the latest visit (400 days is the most browsers allow). */
+export const VISITOR_COOKIE_DAYS = 400;
 
 export type AppEnv = { Variables: { visitor: VisitorRow } };
 
@@ -35,6 +37,14 @@ export function visitor(db: DB): MiddlewareHandler<AppEnv> {
     let row = token
       ? (db.prepare('SELECT * FROM visitors WHERE token_hash = ?').get(sha256(token)) as VisitorRow | undefined)
       : undefined;
+    const remember = (value: string) =>
+      setCookie(c, VISITOR_COOKIE, value, {
+        httpOnly: true,
+        sameSite: 'Lax',
+        secure: isHttps(c),
+        path: '/',
+        maxAge: VISITOR_COOKIE_DAYS * 86_400,
+      });
     if (!row) {
       const fresh = crypto.randomBytes(32).toString('base64url');
       const now = nowIso();
@@ -42,15 +52,12 @@ export function visitor(db: DB): MiddlewareHandler<AppEnv> {
         .prepare('INSERT INTO visitors (token_hash, created_at, last_seen_at) VALUES (?, ?, ?)')
         .run(sha256(fresh), now, now);
       row = db.prepare('SELECT * FROM visitors WHERE id = ?').get(lastInsertRowid) as VisitorRow;
-      setCookie(c, VISITOR_COOKIE, fresh, {
-        httpOnly: true,
-        sameSite: 'Lax',
-        secure: isHttps(c),
-        path: '/',
-        maxAge: 400 * 86_400,
-      });
+      remember(fresh);
     } else if (Date.now() - Date.parse(row.last_seen_at) > 3_600_000) {
+      // At most hourly: note the visit and renew the cookie, so a regular never loses their chat.
+      // Once a visitor stays away past the cookie's lifetime, cleanup removes their chat.
       db.prepare('UPDATE visitors SET last_seen_at = ? WHERE id = ?').run(nowIso(), row.id);
+      remember(token!);
     }
     c.set('visitor', row);
     await next();

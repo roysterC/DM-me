@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import { createApp, pickResponder } from './app';
 import { Budget } from './budget';
+import { scheduleCleanup } from './cleanup';
 import { loadConfig } from './config';
 import { openDb } from './db';
 
@@ -8,6 +9,7 @@ const config = loadConfig();
 const db = openDb(config.dataDir);
 const responder = pickResponder(config, new Budget(db, config.dailyBudgetUsd));
 const { app, deps } = createApp(db, config, responder);
+scheduleCleanup(db, deps.media);
 
 if (!responder) console.warn('ANTHROPIC_API_KEY is not set: the app runs, but Alisa will not reply until it is.');
 else if (config.fakeAi) console.warn('DM_ME_FAKE_AI=1: Alisa is using canned test replies instead of Claude.');
