@@ -32,6 +32,11 @@ export interface MessageRow {
   read_at: string | null;
   /** The message this one quotes, Instagram-style ("You replied to Alisa"). */
   reply_to_id: number | null;
+  /**
+   * Where this message sits in the order Alisa experienced the chat: a visitor's message gets
+   * its number when she reads it, hers when she writes it. Null until then (and on older rows).
+   */
+  context_seq: number | null;
 }
 
 export interface StoryRow {
@@ -145,6 +150,9 @@ const MIGRATIONS: string[] = [
   `,
   `
   ALTER TABLE messages ADD COLUMN reply_to_id INTEGER REFERENCES messages(id) ON DELETE SET NULL;
+  `,
+  `
+  ALTER TABLE messages ADD COLUMN context_seq INTEGER;
   `,
 ];
 

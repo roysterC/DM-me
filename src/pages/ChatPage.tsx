@@ -131,19 +131,23 @@ export function ChatPage() {
     setReplyError(null);
     setSeenNow(true);
     const typingTimer = setTimeout(() => setWaiting(true), 500);
+    let ok = false;
     try {
       const res = await api.reply();
       applyServer(res.messages);
       follow(res.upcoming);
+      ok = true;
     } catch (err) {
+      // No automatic retry: the error stays up with its Retry button, and the next message
+      // the visitor sends asks again. Retrying on a timer would hammer the server (and Claude).
       setReplyError(err instanceof ApiError ? err.message : 'Alisa couldn’t reply. Try again.');
     } finally {
       clearTimeout(typingTimer);
       setWaiting(false);
       replying.current = false;
-      // Anything sent while Alisa was answering gets its own reply.
-      replyIfUnanswered();
     }
+    // Anything sent while Alisa was answering gets its own reply.
+    if (ok) replyIfUnanswered();
   }, [applyServer, follow, replyIfUnanswered]);
 
   const scheduleReply = useCallback(

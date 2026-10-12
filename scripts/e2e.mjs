@@ -168,6 +168,28 @@ await input.press('Enter');
 await page.getByText('You replied to Alisa').waitFor();
 if (await page.getByText('Replying to Alisa').count()) throw new Error('Reply bar should close after sending');
 
+step('a failed reply waits for Retry instead of retrying on its own');
+{
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'dark' });
+  const p = await ctx.newPage();
+  p.on('pageerror', (e) => errors.push(String(e)));
+  let replyCalls = 0;
+  await p.route('**/api/chat/reply', (route) => {
+    replyCalls++;
+    return route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: 'Alisa couldn’t reply. Try again.' }) });
+  });
+  await p.goto(base);
+  await p.getByLabel('Message Alisa').fill('anyone there');
+  await p.getByLabel('Message Alisa').press('Enter');
+  await p.getByRole('alert').waitFor({ timeout: 10_000 });
+  await p.waitForTimeout(5000);
+  if (replyCalls !== 1) throw new Error(`Expected one reply attempt after a failure, got ${replyCalls}`);
+  await p.unrouteAll({ behavior: 'ignoreErrors' });
+  await p.getByRole('button', { name: 'Retry' }).click();
+  await p.getByText('You said: anyone there').waitFor({ timeout: 10_000 });
+  await ctx.close();
+}
+
 // ---- A phone: touch gestures, the floating bars and the scrolling gradient ----
 const phone = await browser.newContext({
   viewport: { width: 390, height: 844 },

@@ -162,6 +162,56 @@ describe('chat', () => {
   });
 });
 
+describe('double texting', () => {
+  it('answers a message sent while Alisa is still thinking, after what she was saying', async () => {
+    const t = setup();
+    // Hold Alisa's first reply until the second message is in.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const reply = t.fake.reply.bind(t.fake);
+    let held = false;
+    t.fake.reply = async (req) => {
+      if (!held) {
+        held = true;
+        await gate;
+      }
+      return reply(req);
+    };
+    const me = t.browser();
+    await me('POST', '/api/chat/messages', { text: 'hey' });
+    const thinking = me('POST', '/api/chat/reply', {});
+    await new Promise((r) => setTimeout(r, 20));
+    await me('POST', '/api/chat/messages', { text: 'u there?' });
+    release();
+    await thinking;
+
+    const chat = await json<ChatDTO>(await me('POST', '/api/chat/reply', {}));
+    // She wrote her first answer before reading "u there?", so that's how her history reads,
+    // and it ends with the message she still owes a reply to.
+    const second = t.fake.calls[1].messages;
+    expect(second.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    expect(JSON.stringify(second.at(-1))).toContain('u there?');
+    expect(chat.messages.at(-1)).toMatchObject({ sender: 'ai', text: 'You said: u there?' });
+    // Nothing left owed.
+    await me('POST', '/api/chat/reply', {});
+    expect(t.fake.calls).toHaveLength(2);
+  });
+
+  it('retries after a failed reply instead of treating the message as answered', async () => {
+    const t = setup();
+    const reply = t.fake.reply.bind(t.fake);
+    t.fake.reply = async () => {
+      throw new Error('Claude is down');
+    };
+    const me = t.browser();
+    await me('POST', '/api/chat/messages', { text: 'hello?' });
+    expect((await me('POST', '/api/chat/reply', {})).status).toBe(502);
+    t.fake.reply = reply;
+    const chat = await json<ChatDTO>(await me('POST', '/api/chat/reply', {}));
+    expect(chat.messages.at(-1)).toMatchObject({ sender: 'ai', text: 'You said: hello?' });
+  });
+});
+
 describe('quote-replies', () => {
   it('lets the visitor reply to a message, shows the quote, and tells Alisa what was quoted', async () => {
     const t = setup();
@@ -455,6 +505,7 @@ describe('buildConversation', () => {
       heart_by_user: 0,
       read_at: null,
       reply_to_id: null,
+      context_seq: null,
     };
     const rows: MessageRow[] = [
       { ...base, id: 1, sender: 'user', kind: 'text', text: 'got the job', heart_by_ai: 1, created_at: '2026-10-09T21:02:00.000Z' },

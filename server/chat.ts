@@ -34,6 +34,17 @@ export function listMessages(db: DB, conversationId: number, limit = 500): Messa
   return rows.reverse();
 }
 
+/**
+ * The chat in the order Alisa experienced it, which is what her history must follow. A message
+ * the visitor sends while she's thinking or "typing" isn't read until her next reply, so it goes
+ * after what she wrote in the meantime, even though it was sent (and shows) earlier. Older rows
+ * without a sequence number keep their insertion order; unread messages always come last.
+ */
+export function contextOrder(rows: MessageRow[]): MessageRow[] {
+  const rank = (r: MessageRow) => (r.context_seq != null ? 1 : r.sender === 'user' && !r.read_at ? 2 : 0);
+  return [...rows].sort((a, b) => rank(a) - rank(b) || (a.context_seq ?? 0) - (b.context_seq ?? 0) || a.id - b.id);
+}
+
 /** Splits rows into those already showing and the times (ms from now) the rest are due. */
 export function splitDue(rows: MessageRow[], now = Date.now()): { shown: MessageRow[]; upcoming: number[] } {
   const cutoff = new Date(now).toISOString();
@@ -143,21 +154,36 @@ export class ReplyService {
     return replied;
   }
 
+  /** The next number in this chat's experienced order (see contextOrder). */
+  private nextSeq(conversationId: number): number {
+    const row = this.db
+      .prepare('SELECT COALESCE(MAX(context_seq), 0) + 1 AS n FROM messages WHERE conversation_id = ?')
+      .get(conversationId) as { n: number };
+    return row.n;
+  }
+
   private async run(conversationId: number, timeZone: string): Promise<boolean> {
     const startedAt = Date.now();
-    // In the order things were written, not shown: a message the visitor sent while Alisa was
-    // still "typing" comes after her queued bubbles, since she wrote those before reading it.
-    const rows = listMessages(this.db, conversationId, HISTORY_LIMIT).sort((a, b) => a.id - b.id);
-    const lastUser = rows.findLast((r) => r.sender === 'user');
-    const lastAi = rows.findLast((r) => r.sender === 'ai');
-    if (!lastUser) return false;
+    const before = contextOrder(listMessages(this.db, conversationId, HISTORY_LIMIT));
+    const lastUserBefore = before.findLast((r) => r.sender === 'user');
+    if (!lastUserBefore) return false;
     // Reply to anything unread, or retry when the last attempt failed after reading it.
-    const answered = lastAi && rows.indexOf(lastAi) > rows.indexOf(lastUser);
-    if (lastUser.read_at && answered) return false;
+    const lastAiBefore = before.findLast((r) => r.sender === 'ai');
+    const unread = before.some((r) => r.sender === 'user' && !r.read_at);
+    if (!unread && lastAiBefore && before.indexOf(lastAiBefore) > before.indexOf(lastUserBefore)) return false;
 
-    this.db
-      .prepare("UPDATE messages SET read_at = ? WHERE conversation_id = ? AND sender = 'user' AND read_at IS NULL")
-      .run(nowIso(), conversationId);
+    // Read everything new, numbering it in the order she reads it.
+    this.db.transaction(() => {
+      const unreadIds = this.db
+        .prepare("SELECT id FROM messages WHERE conversation_id = ? AND sender = 'user' AND read_at IS NULL ORDER BY id")
+        .all(conversationId) as { id: number }[];
+      let seq = this.nextSeq(conversationId);
+      const now = nowIso();
+      const markRead = this.db.prepare('UPDATE messages SET read_at = ?, context_seq = ? WHERE id = ?');
+      for (const { id } of unreadIds) markRead.run(now, seq++, id);
+    })();
+    const rows = contextOrder(listMessages(this.db, conversationId, HISTORY_LIMIT));
+    const lastUser = rows.findLast((r) => r.sender === 'user')!;
 
     const { roll, byRef, refByKey } = cameraRoll(this.db);
     const { messages, opening } = await buildConversation(rows, this.media, timeZone, refByKey, (id) =>
@@ -166,11 +192,12 @@ export class ReplyService {
     const reply = await this.responder.reply({ system: systemPrompt(roll), messages, photoRefs: [...byRef.keys()] });
 
     const insertText = this.db.prepare(
-      "INSERT INTO messages (conversation_id, sender, kind, text, reply_to_id, created_at) VALUES (?, 'ai', 'text', ?, ?, ?)",
+      `INSERT INTO messages (conversation_id, sender, kind, text, reply_to_id, created_at, context_seq)
+       VALUES (?, 'ai', 'text', ?, ?, ?, ?)`,
     );
     const insertPhoto = this.db.prepare(
-      `INSERT INTO messages (conversation_id, sender, kind, media_key, media_mime, media_width, media_height, photo_mode, reply_to_id, created_at)
-       VALUES (?, 'ai', 'photo', ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO messages (conversation_id, sender, kind, media_key, media_mime, media_width, media_height, photo_mode, reply_to_id, created_at, context_seq)
+       VALUES (?, 'ai', 'photo', ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     // Her first bubble can quote one of the visitor's messages; anything else she names is ignored.
     const quoted = reply.replyTo
@@ -204,11 +231,23 @@ export class ReplyService {
         notBefore: pendingUntil > startedAt ? pendingUntil : 0,
       });
       const at = (i: number) => new Date(times[i]).toISOString();
-      texts.forEach((text, i) => insertText.run(conversationId, text, quoteFor(i), at(i)));
+      // Her bubbles take their place in the experienced order as she writes them.
+      const firstSeq = this.nextSeq(conversationId);
+      texts.forEach((text, i) => insertText.run(conversationId, text, quoteFor(i), at(i), firstSeq + i));
       if (reply.photo && p) {
         // A photo set to always go out one way on the admin page overrides Alisa's choice.
         const mode = p.send_mode === 'auto' ? reply.photo.mode : p.send_mode;
-        insertPhoto.run(conversationId, p.media_key, p.media_mime, p.width, p.height, mode, quoteFor(texts.length), at(texts.length));
+        insertPhoto.run(
+          conversationId,
+          p.media_key,
+          p.media_mime,
+          p.width,
+          p.height,
+          mode,
+          quoteFor(texts.length),
+          at(texts.length),
+          firstSeq + texts.length,
+        );
       }
     })();
     await Promise.all(toDelete.map((k) => this.media.remove(k).catch((err) => console.error('Delete failed', k, err))));
