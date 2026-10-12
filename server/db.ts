@@ -64,7 +64,8 @@ export interface LibraryPhotoRow {
   send_mode: SendMode;
 }
 
-const MIGRATIONS: string[] = [
+/** Each entry upgrades the database by one version (PRAGMA user_version). Append only. */
+export const MIGRATIONS: string[] = [
   `
   CREATE TABLE visitors (
     id INTEGER PRIMARY KEY,

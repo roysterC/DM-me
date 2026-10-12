@@ -55,6 +55,7 @@ export function AdminPage() {
         ) : (
           <>
             {state.spend && <Spend {...state.spend} />}
+            {state.backup && <BackupStatus {...state.backup} />}
             <div className="mode-switch compact" role="tablist" aria-label="Section">
               {(['photos', 'stories'] as const).map((t) => (
                 <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? 'selected' : undefined} onClick={() => setTab(t)}>
@@ -80,6 +81,18 @@ function Spend({ calls, spentUsd, limitUsd }: NonNullable<AdminMeDTO['spend']>) 
       Claude today: {usd(spentUsd)}
       {limitUsd > 0 ? ` of ${usd(limitUsd)}` : ' (no daily limit)'} · {calls} {calls === 1 ? 'request' : 'requests'}
       {out && ' · Alisa is done for the day (resets at midnight UTC)'}
+    </p>
+  );
+}
+
+/** The daily restore drill: whether the latest backup restores, and how fresh it is. */
+function BackupStatus({ checkedAt, ok, message }: NonNullable<AdminMeDTO['backup']>) {
+  const stale = Date.now() - Date.parse(checkedAt) > 2 * 86_400_000;
+  const age = shortAge(checkedAt);
+  return (
+    <p className={`spend small${ok && !stale ? '' : ' out'}`}>
+      Backups: {message} Checked {age === 'now' ? 'just now' : `${age} ago`}.
+      {stale && ' The daily check hasn’t run since: see journalctl -u dm-me-backup-check.'}
     </p>
   );
 }

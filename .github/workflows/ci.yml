@@ -36,6 +36,11 @@ jobs:
           for _ in $(seq 1 30); do curl -fs http://127.0.0.1:3456/api/health >/dev/null && break; sleep 1; done
           node scripts/e2e.mjs http://127.0.0.1:3456 test-results/screens
 
+      # Streams a database with Litestream while chatting, restores it and checks the copy,
+      # with the same script servers run daily against their real backups.
+      - name: Backup restore drill
+        run: scripts/backup-drill.sh
+
       - name: Keep the screenshots and server log
         if: failure()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0

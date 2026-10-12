@@ -320,6 +320,8 @@ step "Starting DM-me"
 render "$APP_DIR/deploy/dm-me.service" /etc/systemd/system/dm-me.service
 if [[ $BACKUPS == yes ]]; then
   render "$APP_DIR/deploy/dm-me-backup.service" /etc/systemd/system/dm-me-backup.service
+  render "$APP_DIR/deploy/dm-me-backup-check.service" /etc/systemd/system/dm-me-backup-check.service
+  render "$APP_DIR/deploy/dm-me-backup-check.timer" /etc/systemd/system/dm-me-backup-check.timer
 fi
 systemctl daemon-reload
 systemctl enable --quiet dm-me.service
@@ -344,8 +346,10 @@ fi
 if [[ $BACKUPS == yes ]]; then
   systemctl enable --quiet dm-me-backup.service
   systemctl restart dm-me-backup.service
+  # A daily restore drill, shown on the admin page (deploy/backup-check.sh).
+  systemctl enable --quiet --now dm-me-backup-check.timer
 elif [[ -f /etc/systemd/system/dm-me-backup.service ]]; then
-  systemctl disable --now dm-me-backup.service >/dev/null 2>&1 || true
+  systemctl disable --now dm-me-backup.service dm-me-backup-check.timer >/dev/null 2>&1 || true
 fi
 
 # ---- HTTPS with Caddy ---------------------------------------------------------------------

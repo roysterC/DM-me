@@ -1,0 +1,20 @@
+# Installed by deploy/setup.sh. Restores the latest backup into a scratch file and checks it;
+# the result shows on the admin page. Started daily by dm-me-backup-check.timer.
+[Unit]
+Description=DM-me backup check (restore drill)
+After=network-online.target dm-me-backup.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@APP_USER@
+Group=@APP_USER@
+EnvironmentFile=/etc/dm-me/dm-me.env
+Environment=DATA_DIR=@DATA_DIR@ CONFIG=/etc/dm-me/litestream.yml LITESTREAM=@LITESTREAM@ NODE=@NODE@ APP=@CURRENT@
+ExecStart=@CURRENT@/deploy/backup-check.sh
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=@DATA_DIR@

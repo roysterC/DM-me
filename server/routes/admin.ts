@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { Hono } from 'hono';
 import { type AdminMeDTO, type AdminStoryDTO, PHOTOS_PER_UPLOAD, type SendMode, STORY_BGS, type StoryBg } from '../../shared/types';
 import type { Deps } from '../app';
@@ -10,6 +12,16 @@ import { STORY_HOURS } from '../stories';
 
 const SEND_MODES: SendMode[] = ['auto', 'once', 'replay', 'keep'];
 
+/** What the daily backup check last found (deploy/backup-check.sh writes it), if it runs here. */
+function backupCheck(dataDir: string): AdminMeDTO['backup'] {
+  try {
+    const { checkedAt, ok, message } = JSON.parse(fs.readFileSync(path.join(dataDir, 'backup-check.json'), 'utf8'));
+    return { checkedAt: String(checkedAt), ok: ok === true, message: String(message) };
+  } catch {
+    return undefined;
+  }
+}
+
 /** Alisa's stories and camera roll, behind ADMIN_PASSWORD. */
 export function adminRoutes({ db, config, media, responder, budget }: Deps) {
   const app = new Hono();
@@ -19,7 +31,10 @@ export function adminRoutes({ db, config, media, responder, budget }: Deps) {
   app.get('/me', (c) => {
     const signedIn = admin(c);
     const me: AdminMeDTO = { enabled: !!config.adminPassword, admin: signedIn, storage: media.storage.kind };
-    if (signedIn) me.spend = budget.today();
+    if (signedIn) {
+      me.spend = budget.today();
+      me.backup = backupCheck(config.dataDir);
+    }
     return c.json(me);
   });
 

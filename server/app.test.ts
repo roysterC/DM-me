@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import type { ChatDTO, LibraryPhotoDTO, MessageDTO, OpenPhotoDTO, StoryDTO } from '../shared/types';
@@ -9,7 +10,7 @@ import { createApp } from './app';
 import { pruneStories, pruneVisitors } from './cleanup';
 import { postDailyStories } from './stories';
 import { loadConfig } from './config';
-import { type MessageRow, openDb } from './db';
+import { MIGRATIONS, type MessageRow, openDb } from './db';
 import { clientInfo, ProxyTrust } from './identity';
 import type { PushSend } from './push';
 import { S3Storage } from './storage';
@@ -86,6 +87,37 @@ function setup(
 }
 
 const json = async <T>(res: Response) => (await res.json()) as T;
+
+describe('database upgrades', () => {
+  it('upgrades a database from the very first version, keeping its chats', () => {
+    const dir = fs.mkdtempSync('/tmp/dmme-upgrade-');
+    const old = new Database(path.join(dir, 'dm-me.sqlite'));
+    old.exec(MIGRATIONS[0]);
+    old.pragma('user_version = 1');
+    const at = '2026-10-01T10:00:00.000Z';
+    old.prepare('INSERT INTO visitors (token_hash, created_at, last_seen_at) VALUES (?, ?, ?)').run('hash', at, at);
+    old.prepare('INSERT INTO conversations (visitor_id, created_at) VALUES (1, ?)').run(at);
+    const msg = old.prepare('INSERT INTO messages (conversation_id, sender, kind, text, created_at, read_at) VALUES (1, ?, ?, ?, ?, ?)');
+    msg.run('ai', 'text', 'Hey, I’m Nova. Text me anything: plans, ideas, a rant. I’ll write back.', at, null);
+    msg.run('user', 'text', 'hi', at, at);
+    msg.run('ai', 'text', 'hey you', at, null);
+    old.prepare("INSERT INTO library_photos (media_key, media_mime, description, created_at) VALUES ('library/a.jpg', 'image/jpeg', 'a dish', ?)").run(at);
+    old.close();
+
+    const db = openDb(dir);
+    expect(db.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length);
+    // The old greeting from when she was Nova is gone; the chat itself is intact.
+    const rows = db.prepare('SELECT sender, text, reply_to_id, context_seq, memory_text FROM messages ORDER BY id').all();
+    expect(rows).toEqual([
+      { sender: 'user', text: 'hi', reply_to_id: null, context_seq: null, memory_text: null },
+      { sender: 'ai', text: 'hey you', reply_to_id: null, context_seq: null, memory_text: null },
+    ]);
+    expect(db.prepare('SELECT send_mode FROM library_photos').get()).toEqual({ send_mode: 'auto' });
+    expect(db.prepare('SELECT summary, summarized FROM conversations').get()).toEqual({ summary: null, summarized: 0 });
+    db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
 
 describe('health check', () => {
   it('identifies itself as DM-me', async () => {

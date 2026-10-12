@@ -86,6 +86,8 @@ export interface AdminMeDTO {
   storage: 'local' | 's3';
   /** Today's Claude spend (UTC day); only for a signed-in admin. limitUsd 0 = no limit. */
   spend?: { day: string; calls: number; spentUsd: number; limitUsd: number };
+  /** The latest daily backup check (deploy/backup-check.sh), on servers that run it. */
+  backup?: { checkedAt: string; ok: boolean; message: string };
 }
 
 export interface AdminStoryDTO extends StoryDTO {

@@ -155,6 +155,8 @@ sudo systemctl start dm-me dm-me-backup
 
 Litestream keeps short-term history and compacts it over time, so recent points restore most precisely.
 
+**Checking the backups work.** Once a day, `dm-me-backup-check.timer` restores the latest backup from the bucket into a scratch file, checks it's intact, and compares it with the live database. The admin page shows the result ("Backups: the latest backup restores cleanly…"), in red if the restore failed or the backup is more than 30 minutes behind the live chats (Litestream stuck, or the bucket rejecting it). To run it now: `sudo systemctl start dm-me-backup-check && journalctl -u dm-me-backup-check -n 20`.
+
 ## Troubleshooting
 
 - **The site doesn't load over HTTPS.** Check that the domain resolves to this server (`dig +short your-domain`) and that ports 80 and 443 are open. Caddy's log explains certificate problems: `journalctl -u caddy -n 50`.
@@ -182,6 +184,6 @@ Litestream keeps short-term history and compacts it over time, so recent points 
 | `/etc/dm-me/dm-me.env` | Your settings and keys (readable by root only) |
 | `/etc/dm-me/litestream.yml` | Backup settings |
 | `/var/lib/dm-me` | The database (the only folder the app can write to) |
-| `/etc/systemd/system/dm-me.service`, `dm-me-backup.service` | The app and backup services, running as the `dmme` user |
+| `/etc/systemd/system/dm-me.service`, `dm-me-backup.service`, `dm-me-backup-check.timer` | The app, backup and daily backup-check services, running as the `dmme` user |
 | `/etc/sudoers.d/dm-me-deploy` | Only with automatic deploys: lets the `dm-me-deploy` user run `deploy/update.sh` |
 | `/etc/caddy/sites/dm-me.caddy` | The HTTPS site, imported by one line at the end of your Caddyfile. Your own Caddy sites are left alone |

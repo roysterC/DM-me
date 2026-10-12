@@ -1,0 +1,11 @@
+# Installed by deploy/setup.sh. Runs the backup check once a day.
+[Unit]
+Description=Daily DM-me backup check
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
