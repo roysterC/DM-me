@@ -108,6 +108,7 @@ export function clientInfo(trust: ProxyTrust): MiddlewareHandler {
 
 const client = (c: Context) => c.get('client') ?? resolveClient(c, new ProxyTrust());
 export const clientIp = (c: Context) => client(c).ip;
+export const clientHost = (c: Context) => client(c).host;
 export const isHttps = (c: Context) => client(c).https;
 
 /**

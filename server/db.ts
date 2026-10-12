@@ -181,6 +181,18 @@ const MIGRATIONS: string[] = [
   ALTER TABLE conversations ADD COLUMN summary TEXT;
   ALTER TABLE conversations ADD COLUMN summarized INTEGER NOT NULL DEFAULT 0;
   `,
+  // Devices that asked to be notified when Alisa replies.
+  `
+  CREATE TABLE push_subscriptions (
+    endpoint TEXT PRIMARY KEY,
+    visitor_id INTEGER NOT NULL REFERENCES visitors(id) ON DELETE CASCADE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX push_by_visitor ON push_subscriptions (visitor_id);
+  `,
 ];
 
 export function openDb(dataDir: string): DB {

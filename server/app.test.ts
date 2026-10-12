@@ -11,6 +11,7 @@ import { postDailyStories } from './stories';
 import { loadConfig } from './config';
 import { type MessageRow, openDb } from './db';
 import { clientInfo, ProxyTrust } from './identity';
+import type { PushSend } from './push';
 import { S3Storage } from './storage';
 
 const JPEG = new Uint8Array(fs.readFileSync(path.resolve('server/assets/skillet.jpg')));
@@ -41,7 +42,15 @@ function setup(
   });
   const db = openDb(':memory:');
   const fake = new FakeResponder();
-  const { app, deps } = createApp(db, config, opts.connected === false ? null : fake);
+  // Notifications are recorded instead of sent; one goes out 300 ms after its bubble is due.
+  const pushes: { endpoint: string; payload: { title: string; body: string }; subject: string }[] = [];
+  const pushFails = new Map<string, number>();
+  const send: PushSend = async (sub, payload, _keys, subject) => {
+    const status = pushFails.get(sub.endpoint);
+    if (status) throw Object.assign(new Error('push failed'), { statusCode: status });
+    pushes.push({ endpoint: sub.endpoint, payload: JSON.parse(payload), subject });
+  };
+  const { app, deps } = createApp(db, config, opts.connected === false ? null : fake, undefined, { send, graceMs: 300 });
 
   /** A browser: keeps its own cookies between requests. */
   const browser = () => {
@@ -73,7 +82,7 @@ function setup(
     return form;
   };
 
-  return { app, db, deps, fake, browser, photoForm };
+  return { app, db, deps, fake, browser, photoForm, pushes, pushFails };
 }
 
 const json = async <T>(res: Response) => (await res.json()) as T;
@@ -861,6 +870,56 @@ describe('buildConversation', () => {
       content: [{ type: 'text', text: '[m4 · Fri, Oct 9, 9:03 PM] (replying to your message: "YES") thanks' }],
     });
     expect(JSON.parse(messages[3].content as string)).toMatchObject({ messages: ['ofc'], reply_to_message: 'm4' });
+  });
+});
+
+describe('notifications', () => {
+  const sub = (endpoint: string) => ({ endpoint, keys: { p256dh: 'BPk', auth: 'au' } });
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it('notifies their devices when Alisa’s reply lands while the chat is closed', async () => {
+    const t = setup({ typing: 40 });
+    const me = t.browser();
+    const status = await json<{ key: string; subscribed: boolean }>(await me('GET', '/api/chat/push'));
+    expect(status.key.length).toBeGreaterThan(80);
+    expect(status.subscribed).toBe(false);
+    expect((await me('POST', '/api/chat/push', sub('https://push.example/a'))).status).toBe(200);
+    expect((await json<{ subscribed: boolean }>(await me('GET', '/api/chat/push'))).subscribed).toBe(true);
+
+    await me('POST', '/api/chat/messages', { text: 'night!' });
+    await me('POST', '/api/chat/reply', {});
+    expect(t.pushes).toHaveLength(0);
+    // Her bubble ("You said: night!") is due a moment later; nobody fetched it, so a notification goes out.
+    await wait(2000);
+    expect(t.pushes).toEqual([
+      { endpoint: 'https://push.example/a', payload: expect.objectContaining({ title: 'Alisa', body: 'You said: night!' }), subject: 'mailto:push@dm-me.invalid' },
+    ]);
+  });
+
+  it('stays quiet while the chat is open, and forgets devices the browser dropped', async () => {
+    const t = setup({ typing: 40 });
+    const me = t.browser();
+    await me('POST', '/api/chat/push', sub('https://push.example/gone'));
+    await me('POST', '/api/chat/messages', { text: 'are u there' });
+    await me('POST', '/api/chat/reply', {});
+    // The open chat fetches her bubble when it's due.
+    const due = (t.db.prepare("SELECT MAX(created_at) AS at FROM messages WHERE sender = 'ai'").get() as { at: string }).at;
+    await wait(Date.parse(due) - Date.now() + 10);
+    await me('GET', '/api/chat');
+    await wait(500);
+    expect(t.pushes).toHaveLength(0);
+
+    t.pushFails.set('https://push.example/gone', 410);
+    await me('POST', '/api/chat/messages', { text: 'hello?' });
+    await me('POST', '/api/chat/reply', {});
+    await wait(2000);
+    expect((await json<{ subscribed: boolean }>(await me('GET', '/api/chat/push'))).subscribed).toBe(false);
+  });
+
+  it('only takes real push subscriptions', async () => {
+    const me = setup().browser();
+    expect((await me('POST', '/api/chat/push', { endpoint: 'http://insecure.example', keys: { p256dh: 'a', auth: 'b' } })).status).toBe(400);
+    expect((await me('POST', '/api/chat/push', { endpoint: 'https://push.example/x' })).status).toBe(400);
   });
 });
 

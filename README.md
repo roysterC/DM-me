@@ -10,6 +10,7 @@ What visitors can do:
 - **Send photos.** Take one with the camera or pick one from the library, then choose **View once**, **Allow replay** or **Keep in chat**. Alisa looks at the photo and responds to what's in it. A view-once photo is shown to Alisa once and then deleted.
 - **Get photos from Alisa.** Alisa can send photos from her camera roll as view-once, replay or kept photos. She picks the mode herself (a quick pic or selfie tends to disappear, a recipe stays), unless you've set the photo to always go out one way on the admin page. Tap to view: the photo opens full screen for 5 seconds, then the bubble changes to "Tap to replay" or "Opened". The server enforces the limit.
 - **Watch stories.** Alisa's avatar gets the story ring when there's something new. Tap left or right to move, hold to pause, heart a story, or reply (the reply lands in the chat as "You replied to their story"). Stories expire after 24 hours.
+- **Get notified.** In Alisa's profile, "Notify me when Alisa replies" sends a notification when her reply lands while the chat is closed (say, you put your phone away while she was typing). On iPhone this needs the site on the Home Screen first (Share, then Add to Home Screen); the profile says so. She only starts a reply while the chat is open, so a message sent right before closing gets its answer the next time it's opened.
 - **Delete the chat** from Alisa's profile sheet, which also deletes the photos they sent.
 
 What you (the owner) can do at **`/admin`**, unlocked with `ADMIN_PASSWORD`:
@@ -73,7 +74,8 @@ Backblaze B2, AWS S3, Supabase Storage (its S3 endpoint) and MinIO work the same
 | `SAMPLE_PHOTOS` | on | Start Alisa's camera roll with four sample photos. `off` to start empty. |
 | `PHOTO_SECONDS` | `5` | How long a view-once or replay photo stays on screen. |
 | `TYPING_SPEED` | `7` | How fast Alisa "types", in characters per second. Each bubble appears after roughly its length divided by this, ±25%, capped at 20 seconds. Higher is snappier; `0` shows replies as soon as they're ready. |
-| `SECRET` | generated | Signs cookies and photo links. Generated into `DATA_DIR/secret.key` if unset. |
+| `SECRET` | generated | Signs cookies and photo links, and the keys for notifications are derived from it (so changing it ends every device's notifications until they're turned on again). Generated into `DATA_DIR/secret.key` if unset. |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | from `SECRET` | Your own keys for notifications, if you'd rather not derive them (`npx web-push generate-vapid-keys`). |
 | `DM_ME_FAKE_AI` | off | `1` replaces Claude with canned replies, for tests and demos. |
 
 ## Deploy
@@ -127,6 +129,7 @@ server/            Hono API on Node, SQLite via better-sqlite3
   identity.ts      visitor cookie, admin password, rate limits
   budget.ts        what Claude costs per day, for DAILY_BUDGET_USD
   cleanup.ts       forgets visitors who never wrote, chats whose cookie has expired, and old stories
+  push.ts          "Alisa replied" notifications (web push), when the chat isn't open
   routes/          chat, stories, media, admin
   assets/          sample photos
 src/               React web app (Vite)

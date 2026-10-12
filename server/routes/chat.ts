@@ -6,14 +6,14 @@ import type { Deps } from '../app';
 import { conversationFor, getMessage, listMessages, maxViews, ownedUploads, splitDue, toMessageDTO } from '../chat';
 import type { MessageRow } from '../db';
 import { nowIso } from '../db';
-import { type AppEnv, clientIp, RateLimiter, SENDING_TOO_FAST } from '../identity';
+import { type AppEnv, clientHost, clientIp, isHttps, RateLimiter, SENDING_TOO_FAST } from '../identity';
 import { MAX_VISITOR_PHOTO_BYTES, MediaError } from '../media';
 import { activeStoryMap } from '../stories';
 
 export const MAX_TEXT = 2000;
 const MODES: PhotoMode[] = ['keep', 'once', 'replay'];
 
-export function chatRoutes({ db, config, media, replies, aiConnected, budget, sends }: Deps) {
+export function chatRoutes({ db, config, media, replies, aiConnected, budget, sends, push }: Deps) {
   const app = new Hono<AppEnv>();
   const repliesPerVisitor = new RateLimiter(20, 60_000);
   const repliesPerIp = new RateLimiter(40, 60_000);
@@ -40,7 +40,10 @@ export function chatRoutes({ db, config, media, replies, aiConnected, budget, se
     return row && row.created_at <= nowIso() ? row.id : null;
   };
 
-  app.get('/', async (c) => c.json(await chatState(conversationFor(db, c.get('visitor').id))));
+  app.get('/', async (c) => {
+    push.sawChat(c.get('visitor').id);
+    return c.json(await chatState(conversationFor(db, c.get('visitor').id)));
+  });
 
   app.post('/messages', async (c) => {
     const visitor = c.get('visitor');
@@ -101,8 +104,13 @@ export function chatRoutes({ db, config, media, replies, aiConnected, budget, se
       return c.json({ error: DONE_FOR_TODAY }, 429);
     }
     try {
+      const lastBefore = (db.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM messages WHERE conversation_id = ?').get(conversationId) as {
+        id: number;
+      }).id;
       const replied = await replies.replyTo(conversationId, timeZone);
       if (replied) {
+        // If they close the chat while she's "typing", their devices hear about it.
+        push.afterReply(visitor.id, conversationId, lastBefore, PERSONA.name);
         db.prepare(
           `INSERT INTO reply_counts (visitor_id, day, count) VALUES (?, ?, 1)
            ON CONFLICT (visitor_id, day) DO UPDATE SET count = count + 1`,
@@ -113,6 +121,8 @@ export function chatRoutes({ db, config, media, replies, aiConnected, budget, se
       console.error('Alisa reply failed', err);
       return c.json({ error: 'Alisa couldn’t reply. Try again.' }, 502);
     }
+    // The bubbles due already go back with this answer (all of them, with replies shown instantly).
+    push.sawChat(visitor.id);
     return c.json(await chatState(conversationId));
   });
 
@@ -123,6 +133,32 @@ export function chatRoutes({ db, config, media, replies, aiConnected, budget, se
     if (!row || row.sender !== 'ai') return c.json({ error: 'Message not found.' }, 404);
     db.prepare('UPDATE messages SET heart_by_user = ? WHERE id = ?').run(body.on ? 1 : 0, row.id);
     return c.json({ message: await messageDTO(getMessage(db, conversationId, row.id)!) });
+  });
+
+  // "Notify me when Alisa replies": the key browsers subscribe with, and the subscriptions.
+  app.get('/push', (c) => c.json({ key: push.keys.publicKey, subscribed: push.subscribed(c.get('visitor').id) }));
+
+  app.post('/push', async (c) => {
+    const body = await c.req.json<{ endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } }>().catch(() => ({}) as never);
+    const { endpoint, keys } = body;
+    const valid =
+      typeof endpoint === 'string' &&
+      /^https:\/\//.test(endpoint) &&
+      endpoint.length < 1000 &&
+      typeof keys?.p256dh === 'string' &&
+      typeof keys.auth === 'string' &&
+      keys.p256dh.length < 200 &&
+      keys.auth.length < 100;
+    if (!valid) return c.json({ error: 'That isn’t a push subscription.' }, 400);
+    const origin = `${isHttps(c) ? 'https' : 'http'}://${clientHost(c) ?? 'localhost'}`;
+    push.subscribe(c.get('visitor').id, { endpoint, keys: { p256dh: keys.p256dh as string, auth: keys.auth as string } }, origin);
+    return c.json({ subscribed: true });
+  });
+
+  app.delete('/push', async (c) => {
+    const body = await c.req.json<{ endpoint?: unknown }>().catch(() => ({}) as never);
+    if (typeof body.endpoint === 'string') push.unsubscribe(c.get('visitor').id, body.endpoint);
+    return c.json({ subscribed: push.subscribed(c.get('visitor').id) });
   });
 
   // Opening a view-once or replay photo Alisa sent. Each open uses up one view.

@@ -13,6 +13,7 @@ import { type AppEnv, clientInfo, ProxyTrust, sameOrigin, SendLimiter, visitor }
 import { seedLibrary } from './library';
 import { PHOTOS_PER_UPLOAD } from '../shared/types';
 import { MAX_UPLOAD_BYTES, MAX_VISITOR_PHOTO_BYTES, MediaStore } from './media';
+import { loadPushKeys, type PushSend, PushService } from './push';
 import { adminRoutes } from './routes/admin';
 import { chatRoutes } from './routes/chat';
 import { mediaRoutes } from './routes/media';
@@ -30,6 +31,7 @@ export interface Deps {
   aiConnected: boolean;
   budget: Budget;
   sends: SendLimiter;
+  push: PushService;
 }
 
 export function pickResponder(config: Config, budget: Budget): Responder | null {
@@ -57,7 +59,14 @@ export function pickStorage(config: Config): Storage {
   return new LocalStorage(config.dataDir === ':memory:' ? fs.mkdtempSync('/tmp/dmme-media-') : path.join(config.dataDir, 'media'));
 }
 
-export function createApp(db: DB, config: Config, responder: Responder | null, storage: Storage = pickStorage(config)) {
+export function createApp(
+  db: DB,
+  config: Config,
+  responder: Responder | null,
+  storage: Storage = pickStorage(config),
+  /** Tests swap in their own push delivery and a shorter wait. */
+  pushOptions: { send?: PushSend; graceMs?: number } = {},
+) {
   const media = new MediaStore(storage, config.assetsDir, config.secret);
   const replies = new ReplyService(db, media, responder ?? new FakeResponder(), config.typingCharsPerSecond);
   const budget = new Budget(db, config.dailyBudgetUsd);
@@ -70,6 +79,7 @@ export function createApp(db: DB, config: Config, responder: Responder | null, s
     aiConnected: responder !== null,
     budget,
     sends: new SendLimiter(),
+    push: new PushService(db, loadPushKeys(config.secret), pushOptions.send, pushOptions.graceMs),
   };
   seedLibrary(db, config.seedSamplePhotos);
   ensureStories(db, config.autoStories);
