@@ -5,6 +5,8 @@ const REVEAL_PX = 72;
 /** How far a message has to be pulled right to start a reply. */
 const REPLY_AT_PX = 56;
 const SETTLE_MS = 220;
+/** How far a drag goes before it counts as sideways (ours) or up-and-down (scrolling). */
+const DECIDE_PX = 8;
 
 /** Follows the finger up to `limit`, then gives a little rubber-band resistance. */
 const rubber = (d: number, limit: number) => (d <= limit ? d : limit + (d - limit) * 0.15);
@@ -18,6 +20,10 @@ const rubber = (d: number, limit: number) => (d <= limit ? d : limit + (d - limi
  * Vertical scrolling stays with the browser (`touch-action: pan-y` on the
  * thread). The drag only updates CSS variables, so React doesn't re-render:
  * `--reveal` on the thread slides every row, `--swipe` on one row pulls it.
+ *
+ * Sideways drags are claimed through touch events too (preventDefault on touchmove): iPhone
+ * Safari can otherwise take a sideways drag in a scrolling area, especially one that wobbles up
+ * or down a little, as a scroll, and cancel it a few pixels in, snapping the times back.
  */
 export function useThreadGestures(
   threadRef: RefObject<HTMLElement | null>,
@@ -51,20 +57,29 @@ export function useThreadGestures(
       if (drag?.mode === 'times') setReveal(rubber(Math.max(0, -dx), REVEAL_PX));
       if (drag?.mode === 'reply' && drag.row) setSwipe(drag.row, rubber(Math.max(0, dx), REPLY_AT_PX + 8));
     };
+    let settleTimer = 0;
+    let settlingRow: HTMLElement | null = null;
+    /** Stops the spring-back animation, so a new drag follows the finger straight away. */
+    const stopSettling = () => {
+      window.clearTimeout(settleTimer);
+      el.classList.remove('settling');
+      settlingRow?.classList.remove('settling');
+      settlingRow = null;
+    };
     const settle = (row: HTMLElement | null) => {
+      stopSettling();
       el.classList.add('settling');
       row?.classList.add('settling');
+      settlingRow = row;
       setReveal(0);
       if (row) setSwipe(row, 0);
-      window.setTimeout(() => {
-        el.classList.remove('settling');
-        row?.classList.remove('settling');
-      }, SETTLE_MS);
+      settleTimer = window.setTimeout(stopSettling, SETTLE_MS);
     };
 
     const onDown = (e: PointerEvent) => {
       if (e.pointerType === 'mouse' || !e.isPrimary) return;
       const row = (e.target as HTMLElement).closest<HTMLElement>('[data-msg-id]');
+      stopSettling();
       drag = { id: e.pointerId, x: e.clientX, y: e.clientY, row, mode: 'pending' };
       dx = 0;
     };
@@ -73,7 +88,7 @@ export function useThreadGestures(
       const mx = e.clientX - drag.x;
       const my = e.clientY - drag.y;
       if (drag.mode === 'pending') {
-        if (Math.hypot(mx, my) < 10) return;
+        if (Math.hypot(mx, my) < DECIDE_PX) return;
         // Mostly sideways: ours. Mostly up or down: the browser is scrolling.
         if (Math.abs(mx) < Math.abs(my) * 1.3) {
           drag.mode = 'none';
@@ -99,6 +114,25 @@ export function useThreadGestures(
       if (done.mode === 'times' || done.mode === 'reply') settle(done.row);
     };
 
+    // Keep the browser from scrolling (and cancelling the drag) once it's ours, or while it's
+    // still undecided but heading sideways. Up-and-down drags are left alone, so they scroll.
+    let touchStart: { x: number; y: number } | null = null;
+    const onTouchStart = (e: TouchEvent) => {
+      touchStart = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!touchStart || e.touches.length !== 1 || !e.cancelable) return;
+      const mode = drag?.mode;
+      if (mode === 'times' || mode === 'reply') {
+        e.preventDefault();
+        return;
+      }
+      if (mode !== 'pending') return;
+      const mx = Math.abs(e.touches[0].clientX - touchStart.x);
+      const my = Math.abs(e.touches[0].clientY - touchStart.y);
+      if (mx > 2 && mx > my) e.preventDefault();
+    };
+
     // Trackpads: a sideways two-finger swipe shows the times, and they slide back once it stops.
     let wheelX = 0;
     let wheelTimer = 0;
@@ -119,14 +153,19 @@ export function useThreadGestures(
     el.addEventListener('pointerup', onEnd);
     el.addEventListener('pointercancel', onEnd);
     el.addEventListener('wheel', onWheel, { passive: false });
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
     return () => {
       el.removeEventListener('pointerdown', onDown);
       el.removeEventListener('pointermove', onMove);
       el.removeEventListener('pointerup', onEnd);
       el.removeEventListener('pointercancel', onEnd);
       el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
       cancelAnimationFrame(frame);
       window.clearTimeout(wheelTimer);
+      stopSettling();
     };
   }, [threadRef, ready]);
 }
