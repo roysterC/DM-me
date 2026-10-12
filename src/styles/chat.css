@@ -67,16 +67,18 @@
  * The top of the chat works like iOS's scroll edge effect, measured from Instagram: messages
  * blur more and darken the higher they go under the bar, with no edge anywhere. Three blur
  * bands (16px, 8px, 3px), each fading into the next, so the blur itself weakens towards the
- * bottom; then a darkening ramp, solid at the very top and gone by the bottom. None of it
+ * bottom; then a darkening ramp, solid at the very top and gone by the bottom. It covers just
+ * the bar (60px, below the phone's status bar), so messages below it stay sharp. None of it
  * takes taps.
  */
 .top-fade {
+  --safe: env(safe-area-inset-top);
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   z-index: 4;
-  height: calc(100px + env(safe-area-inset-top));
+  height: calc(60px + var(--safe));
   pointer-events: none;
 }
 .top-fade > span {
@@ -86,20 +88,35 @@
 .top-fade .blur-top {
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
-  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 58%, transparent 76%);
-  mask-image: linear-gradient(180deg, #000 0%, #000 58%, transparent 76%);
+  --band: linear-gradient(180deg, #000 0, #000 calc(18px + var(--safe)), transparent calc(36px + var(--safe)));
+  -webkit-mask-image: var(--band);
+  mask-image: var(--band);
 }
 .top-fade .blur-mid {
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
-  -webkit-mask-image: linear-gradient(180deg, transparent 52%, #000 64%, #000 74%, transparent 88%);
-  mask-image: linear-gradient(180deg, transparent 52%, #000 64%, #000 74%, transparent 88%);
+  --band: linear-gradient(
+    180deg,
+    transparent calc(12px + var(--safe)),
+    #000 calc(24px + var(--safe)),
+    #000 calc(34px + var(--safe)),
+    transparent calc(48px + var(--safe))
+  );
+  -webkit-mask-image: var(--band);
+  mask-image: var(--band);
 }
 .top-fade .blur-low {
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
-  -webkit-mask-image: linear-gradient(180deg, transparent 70%, #000 80%, #000 88%, transparent 100%);
-  mask-image: linear-gradient(180deg, transparent 70%, #000 80%, #000 88%, transparent 100%);
+  --band: linear-gradient(
+    180deg,
+    transparent calc(30px + var(--safe)),
+    #000 calc(40px + var(--safe)),
+    #000 calc(48px + var(--safe)),
+    transparent calc(60px + var(--safe))
+  );
+  -webkit-mask-image: var(--band);
+  mask-image: var(--band);
 }
 .top-fade .dim {
   background: linear-gradient(
