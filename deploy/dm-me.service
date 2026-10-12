@@ -8,7 +8,8 @@ Wants=network-online.target
 Type=simple
 User=@APP_USER@
 Group=@APP_USER@
-WorkingDirectory=@APP_DIR@
+# The release that's live; deploy/release.sh switches this link and restarts.
+WorkingDirectory=@CURRENT@
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=@PORT@

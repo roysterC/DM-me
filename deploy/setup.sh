@@ -14,6 +14,9 @@ APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_DIR=/etc/dm-me
 ENV_FILE=$ENV_DIR/dm-me.env
 DATA_DIR=/var/lib/dm-me
+# Each version is built in its own folder here; `current` points at the one that's running.
+RELEASES=/opt/dm-me-releases
+CURRENT=$RELEASES/current
 APP_USER=dmme
 NODE_MAJOR=22
 LITESTREAM_VERSION=0.5.17
@@ -43,7 +46,8 @@ env_get() {
 render() { # template -> destination, replacing @NAME@ placeholders
   sed -e "s|@APP_DIR@|$APP_DIR|g" -e "s|@DATA_DIR@|$DATA_DIR|g" -e "s|@APP_USER@|$APP_USER|g" \
     -e "s|@PORT@|$PORT|g" -e "s|@DOMAIN@|$DOMAIN|g" -e "s|@NODE@|${NODE_BIN:-}|g" \
-    -e "s|@LITESTREAM@|${LITESTREAM_BIN:-}|g" "$1" >"$2"
+    -e "s|@LITESTREAM@|${LITESTREAM_BIN:-}|g" -e "s|@CURRENT@|$CURRENT|g" \
+    -e "s|@UPDATE@|$APP_DIR/deploy/update.sh|g" "$1" >"$2"
 }
 
 [[ $EUID -eq 0 ]] || die "Run this as root: sudo $0"
@@ -52,6 +56,12 @@ command -v systemctl >/dev/null || die "systemd is required."
 case "$APP_DIR" in
   /home/* | /root/*) die "The app is in $APP_DIR, which the service can't read. Clone it to /opt/dm-me instead." ;;
 esac
+
+# One deploy at a time (update.sh takes this lock itself before pulling, and says so).
+if [[ -z ${DM_ME_DEPLOY_LOCKED:-} ]]; then
+  exec 9>/run/dm-me-deploy.lock
+  flock -w 900 9 || die "Another setup or update is still running."
+fi
 
 # ---- Settings ------------------------------------------------------------------
 
@@ -263,18 +273,17 @@ chmod 750 "$ENV_DIR"
 
 # ---- Build ---------------------------------------------------------------------------
 
+# In its own folder: the running version keeps serving, untouched, until this one is ready.
 step "Building the app"
 mem_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
 swap_mb=$(awk '/SwapTotal/ {print int($2/1024)}' /proc/meminfo)
 if ((mem_mb + swap_mb < 900)); then
   warn "Only ${mem_mb} MB of memory and ${swap_mb} MB of swap. If the build gets killed, add 1 GB of swap (see deploy/README.md)."
 fi
-cd "$APP_DIR"
-npm ci --no-audit --no-fund --loglevel=error
-npm run build --silent
-npm prune --omit=dev --no-audit --no-fund --loglevel=error
-runuser -u "$APP_USER" -- test -r "$APP_DIR/dist/server/index.js" ||
-  die "The service user can't read $APP_DIR. Make sure every folder on that path is readable (chmod o+rx)."
+free_mb=$(df -Pm "$(dirname "$RELEASES")" | awk 'NR == 2 {print $4}')
+((free_mb >= 600)) || die "Only ${free_mb} MB of disk free; the build needs about 600 MB. Free some space and run this again."
+release=$(RELEASES=$RELEASES APP_USER=$APP_USER "$APP_DIR/deploy/release.sh" build "$APP_DIR" | tail -n1)
+[[ -d $release ]] || die "The build didn't produce a release."
 
 # ---- Restore the database from the bucket on a fresh server -----------------------------
 
@@ -301,16 +310,22 @@ if [[ $BACKUPS == yes ]]; then
 fi
 systemctl daemon-reload
 systemctl enable --quiet dm-me.service
-systemctl restart dm-me.service
+# Switches to the new release and checks it answers; if it doesn't, goes back to the previous one.
+RELEASES=$RELEASES PORT=$PORT "$APP_DIR/deploy/release.sh" activate "$release"
+# Versions before releases were built inside the checkout; that copy is no longer used.
+rm -rf "$APP_DIR/node_modules" "$APP_DIR/dist"
 
-healthy=no
-for _ in $(seq 1 30); do
-  if is_dm_me "$PORT"; then healthy=yes; break; fi
-  sleep 1
-done
-if [[ $healthy != yes ]]; then
-  journalctl -u dm-me.service -n 30 --no-pager >&2 || true
-  die "DM-me didn't start. The log is above."
+# Automatic deploys: keep the deploy user's sudo rule current (it lets GitHub pass the commit
+# it tested, which update.sh checks).
+if id dm-me-deploy >/dev/null 2>&1 && [[ -f /etc/sudoers.d/dm-me-deploy ]]; then
+  rule=$(mktemp)
+  render "$APP_DIR/deploy/dm-me-deploy.sudoers" "$rule"
+  if visudo -cqf "$rule"; then
+    install -m 440 -o root -g root "$rule" /etc/sudoers.d/dm-me-deploy
+  else
+    warn "Couldn't update the sudo rule for automatic deploys; the old one stays."
+  fi
+  rm -f "$rule"
 fi
 
 if [[ $BACKUPS == yes ]]; then
@@ -393,6 +408,7 @@ The HTTPS certificate is issued on the first visit. That needs $DOMAIN to point 
 server and ports 80 and 443 open in any firewall.
 
 Backups:  $([[ $BACKUPS == yes ]] && echo "on, streaming to $(env_get S3_BUCKET)/backups/dm-me" || echo "OFF (no bucket configured)")
+Running:  $(basename "$(readlink -f "$CURRENT")")   (releases in $RELEASES)
 Logs:     journalctl -u dm-me -f
 Restart:  sudo systemctl restart dm-me
 Update:   sudo $APP_DIR/deploy/update.sh

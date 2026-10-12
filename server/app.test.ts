@@ -11,7 +11,9 @@ import { S3Storage } from './storage';
 
 const JPEG = new Uint8Array(fs.readFileSync(path.resolve('server/assets/skillet.jpg')));
 
-function setup(opts: { connected?: boolean; adminPassword?: string; dailyReplyLimit?: number; typing?: number } = {}) {
+function setup(
+  opts: { connected?: boolean; adminPassword?: string; dailyReplyLimit?: number; typing?: number; clientDir?: string } = {},
+) {
   const config = loadConfig({
     dataDir: ':memory:',
     secret: 'test-secret',
@@ -23,6 +25,7 @@ function setup(opts: { connected?: boolean; adminPassword?: string; dailyReplyLi
     dailyReplyLimit: opts.dailyReplyLimit ?? 200,
     // Replies appear instantly unless a test is about their timing.
     typingCharsPerSecond: opts.typing ?? 0,
+    ...(opts.clientDir ? { clientDir: opts.clientDir } : {}),
   });
   const db = openDb(':memory:');
   const fake = new FakeResponder();
@@ -67,6 +70,19 @@ describe('health check', () => {
   it('identifies itself as DM-me', async () => {
     const t = setup();
     expect(await json(await t.app.request('http://localhost/api/health'))).toEqual({ app: 'dm-me', ok: true });
+  });
+
+  it('fails in production when the built web app is missing, so a deploy rolls back', async () => {
+    const before = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const t = setup({ clientDir: '/nonexistent/dm-me-client' });
+      const res = await t.app.request('http://localhost/api/health');
+      expect(res.status).toBe(503);
+      expect(await json(res)).toEqual({ app: 'dm-me', ok: false, problems: ['web app files'] });
+    } finally {
+      process.env.NODE_ENV = before;
+    }
   });
 });
 

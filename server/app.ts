@@ -81,8 +81,22 @@ export function createApp(db: DB, config: Config, responder: Responder | null, s
   visitorApi.route('/chat', chatRoutes(deps));
   visitorApi.route('/stories', storyRoutes(deps));
 
-  // Lets deploy scripts confirm it's DM-me answering on the port, not some other program.
-  app.get('/api/health', (c) => c.json({ app: 'dm-me', ok: true }));
+  // Lets deploys confirm it's DM-me answering on the port, and that it can really serve: the
+  // database answers and, in production, the built web app is there. A 503 makes the deploy
+  // roll back to the previous version.
+  const indexFile = path.join(config.clientDir, 'index.html');
+  app.get('/api/health', (c) => {
+    const problems: string[] = [];
+    try {
+      db.prepare('SELECT 1').get();
+    } catch {
+      problems.push('database');
+    }
+    if (process.env.NODE_ENV === 'production' && !fs.existsSync(indexFile)) problems.push('web app files');
+    return problems.length
+      ? c.json({ app: 'dm-me', ok: false, problems }, 503)
+      : c.json({ app: 'dm-me', ok: true });
+  });
   app.route('/api/media', mediaRoutes(deps));
   app.route('/api/admin', adminRoutes(deps));
   app.route('/api', visitorApi);
@@ -94,7 +108,6 @@ export function createApp(db: DB, config: Config, responder: Responder | null, s
   });
 
   // In production the server also hands out the built web app.
-  const indexFile = path.join(config.clientDir, 'index.html');
   if (fs.existsSync(indexFile)) {
     const root = path.relative(process.cwd(), config.clientDir);
     app.use(

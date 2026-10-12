@@ -1,4 +1,4 @@
-# Tests every push to main, then deploys it to the VPS by running deploy/update.sh there.
+# Tests every push to main, then deploys exactly that commit to the VPS (deploy/update.sh there).
 # One-time setup: run deploy/enable-auto-deploy.sh on the server and add the secrets it prints
 # (VPS_HOST, VPS_SSH_KEY, VPS_KNOWN_HOSTS, and VPS_PORT if SSH isn't on 22).
 name: Deploy
@@ -11,7 +11,8 @@ on:
 permissions:
   contents: read
 
-# One deploy at a time; a newer push waits for the running one instead of cutting it off.
+# One run (test, then deploy) at a time; a newer push waits for the running one instead of cutting
+# it off, and only the newest waiting push runs next.
 concurrency:
   group: deploy-vps
   cancel-in-progress: false
@@ -62,13 +63,15 @@ jobs:
           printf '%s\n' "$KEY" > "$dir/deploy_key"
           chmod 600 "$dir/deploy_key"
           printf '%s\n' "$KNOWN_HOSTS" > "$dir/known_hosts"
-          # The key may only run deploy/update.sh on the server, which pulls main, rebuilds,
-          # restarts and checks the app answers. Its exit status fails this step if anything breaks.
+          # The key may only run deploy/update.sh on the server. It deploys the commit named here
+          # (the one tested above, even if main has moved on since), builds it in its own folder,
+          # switches over and checks the app answers, going back to the previous version if not.
+          # Its exit status fails this step if anything breaks.
           ssh -T -i "$dir/deploy_key" -p "$PORT" \
             -o IdentitiesOnly=yes -o BatchMode=yes \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$dir/known_hosts" \
             -o ServerAliveInterval=30 -o ConnectTimeout=20 \
-            "dm-me-deploy@$HOST"
+            "dm-me-deploy@$HOST" "deploy $GITHUB_SHA"
 
       - name: Remove the key
         if: always()
