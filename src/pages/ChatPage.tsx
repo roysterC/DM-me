@@ -409,6 +409,13 @@ export function ChatPage() {
 
   return (
     <div className="phone" ref={phoneRef}>
+      {/* Messages blur and darken as they slide under the top bar (see .top-fade). */}
+      <div className="top-fade" aria-hidden="true">
+        <span className="blur-top" />
+        <span className="blur-mid" />
+        <span className="blur-low" />
+        <span className="dim" />
+      </div>
       <header className="chat-header floating" ref={headerRef}>
         <div className="header-avatar">
           <Avatar

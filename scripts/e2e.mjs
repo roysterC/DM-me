@@ -224,11 +224,17 @@ for (const text of ['hey', 'so i had the weirdest day', 'like genuinely', 'my em
   await tInput.press('Enter');
 }
 await tp.getByText('You said: hey so i had').waitFor({ timeout: 15_000 });
-const backdrop = await tp.locator('.chat-header').evaluate((el) => {
-  const s = getComputedStyle(el, '::before');
-  return { blur: s.backdropFilter || s.webkitBackdropFilter, mask: s.maskImage || s.webkitMaskImage };
-});
-if (!/blur/.test(backdrop.blur) || !/gradient/.test(backdrop.mask)) throw new Error(`Header should be blurred and fade out: ${JSON.stringify(backdrop)}`);
+// The top fades like iOS: three blur bands that weaken downwards, each masked, under a darkening ramp.
+const bands = await tp.locator('.top-fade > span').evaluateAll((els) =>
+  els.map((el) => {
+    const s = getComputedStyle(el);
+    return { blur: s.backdropFilter || s.webkitBackdropFilter, mask: s.maskImage || s.webkitMaskImage, bg: s.backgroundImage };
+  }),
+);
+const radii = bands.slice(0, 3).map((b) => Number(/blur\((\d+)px\)/.exec(b.blur)?.[1]));
+if (radii.join() !== '16,8,3' || !bands.slice(0, 3).every((b) => /gradient/.test(b.mask)) || !/gradient/.test(bands[3].bg)) {
+  throw new Error(`Top fade isn't set up as expected: ${JSON.stringify(bands)}`);
+}
 // Only the photo and the info button take taps; the name is a plain label.
 if (await tp.locator('.chat-header .header-title').evaluate((el) => el.tagName !== 'DIV')) throw new Error('The header name should not be a button');
 const fillY = (text) => tp.getByText(text, { exact: true }).evaluate((el) => getComputedStyle(el).backgroundPositionY);
