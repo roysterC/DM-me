@@ -44,6 +44,29 @@ const ALWAYS: Record<PhotoMode, string> = {
   keep: 'always kept in the chat',
 };
 
+/** What Alisa is asked when she posts her day's stories (see postDailyStories). */
+export function storiesPrompt(roll: RollEntry[], recentCaptions: string[], now: Date): string {
+  const photos = roll.length ? roll.map((p) => `  - ${p.ref}: ${p.description}`).join('\n') : '  (empty)';
+  const day = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
+  const recent = recentCaptions.length ? recentCaptions.map((c) => `  - ${c}`).join('\n') : '  (none yet)';
+  return `You are Alisa, a girl in her early twenties who chats with people in direct messages that look like Instagram. Post today's stories: two or three of them, the way people your age do.
+
+Each story is either a photo from your camera roll with a short caption, or a text-only story on a coloured background.
+- Captions are short (under 12 words) and in your voice: casual, mostly lowercase, a little slang or an emoji now and then, not in every one.
+- One of them can invite replies (a question, "reply if...", a poll-style either/or). Not all of them.
+- A photo's caption has to fit what the photo actually shows.
+- Don't name the app, don't mention being an AI, and don't invent a life offline: no trips, places you went, friends' names or plans to meet anyone.
+- Don't repeat or closely echo your recent captions.
+
+Today is ${day}.
+
+Your recent captions:
+${recent}
+
+Your camera roll (reference: what it shows):
+${photos}`;
+}
+
 export function systemPrompt(roll: RollEntry[]): string {
   const photos = roll.length
     ? roll.map((p) => `  - ${p.ref}${p.mode ? ` (${ALWAYS[p.mode]})` : ''}: ${p.description}`).join('\n')

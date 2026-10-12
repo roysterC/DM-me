@@ -4,9 +4,10 @@ import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import type { ChatDTO, LibraryPhotoDTO, MessageDTO, OpenPhotoDTO, StoryDTO } from '../shared/types';
 import { buildConversation, visitorText } from './ai/context';
-import { FakeResponder, parseReply } from './ai/responder';
+import { FakeResponder, parseReply, parseStories } from './ai/responder';
 import { createApp } from './app';
 import { pruneStories, pruneVisitors } from './cleanup';
+import { postDailyStories } from './stories';
 import { loadConfig } from './config';
 import { type MessageRow, openDb } from './db';
 import { clientInfo, ProxyTrust } from './identity';
@@ -462,6 +463,52 @@ describe('photos', () => {
 });
 
 describe('stories', () => {
+  it('has Alisa write a new set of stories about an hour before the live ones run out', async () => {
+    const t = setup();
+    // The sample stories were just posted: nothing to do yet.
+    expect(await postDailyStories(t.db, t.fake)).toBe(0);
+    const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
+    t.db.prepare('UPDATE stories SET expires_at = ?').run(inMinutes(50));
+    expect(await postDailyStories(t.db, t.fake)).toBe(2);
+    expect(t.fake.storyPrompts[0]).toContain('Weekend idea: one long walk, no phone');
+    expect(t.fake.storyPrompts[0]).toMatch(/- p\d+: a baked egg skillet/);
+
+    const live = (await json<{ stories: StoryDTO[] }>(await t.browser()('GET', '/api/stories'))).stories;
+    const photo = live.find((s) => s.caption === 'made this again bc i have no self control 😭');
+    expect(photo).toMatchObject({ kind: 'photo' });
+    expect(photo?.mediaUrl).toBeTruthy();
+    expect(live.find((s) => s.caption === 'sunday reset or sunday rot. pick one')).toMatchObject({ kind: 'text', bg: 'sunset' });
+    // Then not again until those are close to running out.
+    expect(await postDailyStories(t.db, t.fake)).toBe(0);
+  });
+
+  it('posts nothing when Claude can’t write them (the samples fill in once none are live)', async () => {
+    const t = setup();
+    t.db.prepare('UPDATE stories SET expires_at = ?').run(new Date(Date.now() - 60_000).toISOString());
+    t.fake.writeStories = async () => {
+      throw new Error('budget spent');
+    };
+    expect(await postDailyStories(t.db, t.fake)).toBe(0);
+    expect((await json<{ stories: StoryDTO[] }>(await t.browser()('GET', '/api/stories'))).stories).toHaveLength(4);
+  });
+
+  it('keeps only real stories from Claude’s answer', () => {
+    const raw = JSON.stringify({
+      stories: [
+        { photo: 'p1', caption: ' look ', background: 'ocean' },
+        { photo: 'p99', caption: 'made-up photo becomes text', background: 'nope' },
+        { photo: 'none', caption: '', background: 'forest' },
+        { photo: 'none', caption: 'four', background: 'forest' },
+        { photo: 'none', caption: 'five', background: 'forest' },
+      ],
+    });
+    expect(parseStories(raw, ['p1'])).toEqual([
+      { photoRef: 'p1', caption: 'look', bg: 'ocean' },
+      { photoRef: null, caption: 'made-up photo becomes text', bg: 'violet' },
+      { photoRef: null, caption: 'four', bg: 'forest' },
+    ]);
+  });
+
   it('counts story replies toward the same sending limit as other messages', async () => {
     const t = setup();
     const me = t.browser();

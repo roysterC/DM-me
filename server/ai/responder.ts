@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { PhotoMode } from '../../shared/types';
+import { type PhotoMode, STORY_BGS, type StoryBg } from '../../shared/types';
 import type { Budget } from '../budget';
 
 export interface PersonaReply {
@@ -11,6 +11,13 @@ export interface PersonaReply {
   photo: { ref: string; mode: PhotoMode } | null;
   /** What the visitor's disappearing photo(s) seen this turn showed, for her to remember them by. */
   photoMemory: string | null;
+}
+
+/** One story Alisa writes: a camera-roll photo (by reference) with a caption, or text on a background. */
+export interface StoryDraft {
+  photoRef: string | null;
+  caption: string;
+  bg: StoryBg;
 }
 
 export interface ReplyRequest {
@@ -26,6 +33,45 @@ export interface Responder {
   describe(data: Uint8Array, mime: string): Promise<string>;
   /** Folds older messages (a transcript) into what Alisa remembers of a long chat. */
   summarize(previous: string | null, transcript: string): Promise<string>;
+  /** Alisa's stories for the day; `prompt` is storiesPrompt(). */
+  writeStories(prompt: string, photoRefs: string[]): Promise<StoryDraft[]>;
+}
+
+export function storiesSchema(photoRefs: string[]) {
+  return {
+    type: 'object',
+    properties: {
+      stories: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            photo: { type: 'string', enum: ['none', ...photoRefs], description: 'A camera-roll reference, or "none" for a text story.' },
+            caption: { type: 'string' },
+            background: { type: 'string', enum: STORY_BGS, description: 'The colour behind a text story.' },
+          },
+          required: ['photo', 'caption', 'background'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['stories'],
+    additionalProperties: false,
+  };
+}
+
+/** At most three stories; photos only from the camera roll, and a text story needs its text. */
+export function parseStories(raw: string, photoRefs: string[]): StoryDraft[] {
+  const data = JSON.parse(raw) as { stories?: unknown };
+  const list = Array.isArray(data.stories) ? (data.stories as Record<string, unknown>[]) : [];
+  return list
+    .map((s) => ({
+      photoRef: typeof s.photo === 'string' && photoRefs.includes(s.photo) ? s.photo : null,
+      caption: typeof s.caption === 'string' ? s.caption.trim().slice(0, 300) : '',
+      bg: (STORY_BGS as unknown[]).includes(s.background) ? (s.background as StoryBg) : 'violet',
+    }))
+    .filter((s) => s.photoRef || s.caption)
+    .slice(0, 3);
 }
 
 const SUMMARY_PROMPT = `You keep the memory of a long direct-message chat for Alisa, who is chatting with someone. Older messages are about to drop out of what she can see, so write what she should remember from them.
@@ -162,6 +208,17 @@ export class ClaudeResponder implements Responder {
     return text.slice(0, 3000);
   }
 
+  async writeStories(prompt: string, photoRefs: string[]): Promise<StoryDraft[]> {
+    const response = await this.call({
+      max_tokens: 2000,
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: storiesSchema(photoRefs) } },
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const stories = response.stop_reason === 'refusal' ? [] : parseStories(textOf(response.content), photoRefs);
+    if (stories.length === 0) throw new AiUnavailableError('Alisa’s stories came back empty.');
+    return stories;
+  }
+
   async describe(data: Uint8Array, mime: string): Promise<string> {
     const response = await this.call({
       max_tokens: 1000,
@@ -220,6 +277,16 @@ export class FakeResponder implements Responder {
 
   async describe(): Promise<string> {
     return 'a test photo';
+  }
+
+  storyPrompts: string[] = [];
+
+  async writeStories(prompt: string, photoRefs: string[]): Promise<StoryDraft[]> {
+    this.storyPrompts.push(prompt);
+    return [
+      { photoRef: photoRefs[0] ?? null, caption: 'made this again bc i have no self control 😭', bg: 'violet' },
+      { photoRef: null, caption: 'sunday reset or sunday rot. pick one', bg: 'sunset' },
+    ];
   }
 
   summaries: { previous: string | null; transcript: string }[] = [];

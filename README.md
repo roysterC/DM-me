@@ -69,7 +69,7 @@ Backblaze B2, AWS S3, Supabase Storage (its S3 endpoint) and MinIO work the same
 | `DATA_DIR` | `./data` | SQLite database, and photos when no bucket is set. |
 | `DAILY_REPLY_LIMIT` | `200` | Alisa replies per visitor per day, to cap API spend on a public site. |
 | `DAILY_BUDGET_USD` | `2` | Most the whole site spends on Claude per day (UTC), in US dollars, however many visitors there are. Once it's spent, Alisa stops replying until midnight UTC. The admin page shows today's spend. `0` = no limit. |
-| `AUTO_STORIES` | on | Re-post four sample stories whenever none are live. `off` to disable. |
+| `AUTO_STORIES` | on | Alisa posts her own stories: with Claude connected, she writes two or three each day (captions in her voice, photos from her camera roll) about an hour before the live ones run out, counted in the daily budget. Whenever none are live, four sample stories fill in. Stories you post from `/admin` count as live, so hers wait for yours. `off` to disable both. |
 | `SAMPLE_PHOTOS` | on | Start Alisa's camera roll with four sample photos. `off` to start empty. |
 | `PHOTO_SECONDS` | `5` | How long a view-once or replay photo stays on screen. |
 | `TYPING_SPEED` | `7` | How fast Alisa "types", in characters per second. Each bubble appears after roughly its length divided by this, ±25%, capped at 20 seconds. Higher is snappier; `0` shows replies as soon as they're ready. |
@@ -117,7 +117,7 @@ GitHub runs all of these on every pull request (`.github/workflows/ci.yml`), and
 
 ```
 server/            Hono API on Node, SQLite via better-sqlite3
-  ai/persona.ts    Alisa's persona, system prompt, sample photos and stories
+  ai/persona.ts    Alisa's persona, system prompt, the prompt for her daily stories, sample photos and stories
   ai/context.ts    turns chat history into a Claude conversation (text, images, Alisa's past replies)
   ai/responder.ts  the Claude calls (replies and photo descriptions), plus the fake used in tests
   chat.ts          reply flow: one reply per conversation at a time, view-once bookkeeping
