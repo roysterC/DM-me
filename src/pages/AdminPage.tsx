@@ -246,21 +246,37 @@ function PhotoRow({ photo, onChanged }: { photo: LibraryPhotoDTO; onChanged: () 
   const [text, setText] = useState(photo.description);
   const [saving, setSaving] = useState(false);
   const [sendMode, setSendMode] = useState(photo.sendMode);
+  const [error, setError] = useState<string | null>(null);
   const changeMode = async (mode: SendMode) => {
     setSendMode(mode);
-    await api.admin.setSendMode(photo.id, mode).catch(() => setSendMode(photo.sendMode));
+    setError(null);
+    await api.admin.setSendMode(photo.id, mode).catch((err) => {
+      setSendMode(photo.sendMode);
+      setError(message(err, 'Couldn’t change how it sends.'));
+    });
   };
   const dirty = text.trim() !== photo.description;
   const save = async () => {
     setSaving(true);
-    await api.admin.describePhoto(photo.id, text).catch(() => {});
-    setSaving(false);
-    onChanged();
+    setError(null);
+    try {
+      await api.admin.describePhoto(photo.id, text);
+      onChanged();
+    } catch (err) {
+      setError(message(err, 'Couldn’t save the description.'));
+    } finally {
+      setSaving(false);
+    }
   };
   const remove = async () => {
     if (!confirm('Remove this photo from Alisa’s camera roll?')) return;
-    await api.admin.removePhoto(photo.id).catch(() => {});
-    onChanged();
+    setError(null);
+    try {
+      await api.admin.removePhoto(photo.id);
+      onChanged();
+    } catch (err) {
+      setError(message(err, 'Couldn’t remove the photo.'));
+    }
   };
   return (
     <li>
@@ -288,6 +304,11 @@ function PhotoRow({ photo, onChanged }: { photo: LibraryPhotoDTO; onChanged: () 
             </button>
           )}
         </span>
+        {error && (
+          <span className="form-error small" role="alert">
+            {error}
+          </span>
+        )}
       </div>
       <button type="button" className="text-btn danger" onClick={remove}>
         Remove

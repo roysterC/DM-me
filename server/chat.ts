@@ -127,7 +127,7 @@ export async function toMessageDTO(
  * message. One reply runs per conversation at a time.
  */
 export class ReplyService {
-  private running = new Map<number, Promise<void>>();
+  private running = new Map<number, { job: Promise<void>; dropped: boolean }>();
 
   constructor(
     private db: DB,
@@ -140,18 +140,25 @@ export class ReplyService {
   async replyTo(conversationId: number, timeZone: string): Promise<boolean> {
     const inflight = this.running.get(conversationId);
     if (inflight) {
-      await inflight.catch(() => {});
+      await inflight.job.catch(() => {});
       return false;
     }
     let replied = false;
-    const job = this.run(conversationId, timeZone)
+    const entry = { job: Promise.resolve(), dropped: false };
+    entry.job = this.run(conversationId, timeZone, () => entry.dropped)
       .then((r) => {
         replied = r;
       })
       .finally(() => this.running.delete(conversationId));
-    this.running.set(conversationId, job);
-    await job;
+    this.running.set(conversationId, entry);
+    await entry.job;
     return replied;
+  }
+
+  /** The chat is being deleted: a reply still being written for it is thrown away. */
+  drop(conversationId: number) {
+    const inflight = this.running.get(conversationId);
+    if (inflight) inflight.dropped = true;
   }
 
   /** The next number in this chat's experienced order (see contextOrder). */
@@ -162,7 +169,7 @@ export class ReplyService {
     return row.n;
   }
 
-  private async run(conversationId: number, timeZone: string): Promise<boolean> {
+  private async run(conversationId: number, timeZone: string, dropped: () => boolean): Promise<boolean> {
     const startedAt = Date.now();
     const before = contextOrder(listMessages(this.db, conversationId, HISTORY_LIMIT));
     const lastUserBefore = before.findLast((r) => r.sender === 'user');
@@ -208,7 +215,10 @@ export class ReplyService {
     const markOpened = this.db.prepare('UPDATE messages SET view_count = view_count + 1 WHERE id = ?');
 
     const toDelete: string[] = [];
-    this.db.transaction(() => {
+    const saved = this.db.transaction(() => {
+      // The visitor deleted the chat while Alisa was writing: nothing to add it to. (Checked by
+      // flag, not by id: the visitor's new chat can be given the deleted one's id.)
+      if (dropped() || !this.db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(conversationId)) return false;
       // Alisa has now seen the view-once photos; they can't be opened again.
       for (const id of opening) {
         markOpened.run(id);
@@ -219,7 +229,11 @@ export class ReplyService {
 
       // Text bubbles first ("Like this:"), then the photo, each due when it would be typed.
       const texts = splitBubbles(reply.messages);
-      const p = reply.photo ? byRef.get(reply.photo.ref) : undefined;
+      // Only if it's still in the camera roll: the admin may have removed it (and its file)
+      // while she was writing.
+      const picked = reply.photo ? byRef.get(reply.photo.ref) : undefined;
+      const p =
+        picked && this.db.prepare('SELECT 1 FROM library_photos WHERE id = ? AND hidden = 0').get(picked.id) ? picked : undefined;
       const bubbles: Bubble[] = texts.map((text) => ({ kind: 'text', text }));
       if (p) bubbles.push({ kind: 'photo' });
       // Bubbles still due from an earlier reply go first.
@@ -249,7 +263,9 @@ export class ReplyService {
           firstSeq + texts.length,
         );
       }
+      return true;
     })();
+    if (!saved) return false;
     await Promise.all(toDelete.map((k) => this.media.remove(k).catch((err) => console.error('Delete failed', k, err))));
     return true;
   }

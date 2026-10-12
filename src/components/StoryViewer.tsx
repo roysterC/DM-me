@@ -53,6 +53,10 @@ export function StoryViewer({ stories, startIndex, persona, seconds = 5, onClose
   });
 
   const { consumeHold, ...holdHandlers } = useHoldToPause(setHeld);
+  // The list refreshes every few minutes; if the story on screen expired meanwhile, close.
+  useEffect(() => {
+    if (!story) onClose();
+  }, [!story]);
   if (!story) return null;
 
   const send = async (e: FormEvent) => {

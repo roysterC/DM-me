@@ -17,3 +17,9 @@ export function preloadImage(url: string): Promise<void> {
   }
   return entry.ready;
 }
+
+/** Lets go of every preloaded picture except these, so the map doesn't grow in a long-open tab. */
+export function forgetPreloadsExcept(urls: string[]) {
+  const keep = new Set(urls);
+  for (const url of loaded.keys()) if (!keep.has(url)) loaded.delete(url);
+}

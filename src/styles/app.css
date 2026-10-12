@@ -362,8 +362,8 @@ a {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  /* Vertical scrolling is the browser's; sideways drags are the chat's gestures. */
-  touch-action: pan-y;
+  /* Vertical scrolling and pinch-zoom are the browser's; sideways drags are the chat's gestures. */
+  touch-action: pan-y pinch-zoom;
   padding: calc(var(--top-h, 60px) + 16px) 8px calc(var(--bottom-h, 84px) + 8px);
   display: flex;
   flex-direction: column;
@@ -1550,8 +1550,9 @@ a {
   border-radius: 8px;
   border: 1px solid var(--chip-line);
   background: var(--field);
-  font-size: 14px;
-  line-height: 19px;
+  /* 16px: iOS zooms the page into any smaller input when it's focused. */
+  font-size: 16px;
+  line-height: 21px;
   resize: vertical;
 }
 .admin-send {
@@ -1570,7 +1571,7 @@ a {
   background: var(--field);
   color: var(--fg);
   font: inherit;
-  font-size: 13px;
+  font-size: 16px;
 }
 .admin-body code {
   font-size: 13px;

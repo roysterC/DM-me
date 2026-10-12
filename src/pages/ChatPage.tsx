@@ -10,8 +10,8 @@ import { Lightbox, PhotoViewer } from '../components/PhotoViewer';
 import { SendPhotoSheet } from '../components/SendPhotoSheet';
 import { StoryViewer } from '../components/StoryViewer';
 import { prepareImage, type PreparedImage } from '../lib/image';
-import { preloadImage } from '../lib/preload';
-import { buildThread, type UiMessage } from '../lib/thread';
+import { forgetPreloadsExcept, preloadImage } from '../lib/preload';
+import { buildThread, mergeServer, type UiMessage } from '../lib/thread';
 import { seenLabel } from '../lib/time';
 import { useScrollGradient } from '../lib/useScrollGradient';
 import { useThreadGestures } from '../lib/useThreadGestures';
@@ -22,6 +22,16 @@ const REPLY_DELAY_MS = 1200;
 const TYPING_PAUSE_MS = 600;
 /** Fetch a due bubble this long after its time, so it's surely showing on the server. */
 const DUE_SLACK_MS = 150;
+/**
+ * Photo links from the server last at least an hour; re-fetch the chat and stories once what's
+ * on screen is older than this, so a tab left open never shows broken photos.
+ */
+const STALE_MS = 30 * 60_000;
+/** Within this many pixels of the bottom counts as reading the latest messages. */
+const NEAR_BOTTOM_PX = 80;
+
+const scrollBehavior = (): ScrollBehavior =>
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
 
 /**
  * Whether Alisa owes a reply: something the visitor sent that she hasn't read, or
@@ -81,6 +91,12 @@ export function ChatPage() {
   const nextTempId = useRef(-1);
   const retryPayload = useRef(new Map<number, () => Promise<boolean>>());
   const scheduleReplyRef = useRef<(delay?: number) => void>(() => {});
+  // False once the page is gone: async work that finishes later must not start timers again.
+  const alive = useRef(true);
+  // Bumped by each follow(); a fetch from an older one is out of date when it lands.
+  const followGen = useRef(0);
+  // When the chat was last fetched, for re-signing photo links in long-open tabs.
+  const fetchedAt = useRef(Date.now());
   messagesRef.current = messages;
 
   const aiConnected = chat?.aiConnected ?? true;
@@ -89,8 +105,8 @@ export function ChatPage() {
 
   /** Takes the server's view of the chat, keeping what the visitor sent since (or is still sending). */
   const applyServer = useCallback((list: UiMessage[]) => {
-    const known = new Set(list.map((m) => m.id));
-    const merged = [...list, ...messagesRef.current.filter((m) => !known.has(m.id) && (m.pending || m.sender === 'user'))];
+    fetchedAt.current = Date.now();
+    const merged = mergeServer(list, messagesRef.current);
     messagesRef.current = merged;
     setMessages(merged);
   }, []);
@@ -103,12 +119,15 @@ export function ChatPage() {
   const follow = useCallback(
     (upcoming: number[]) => {
       clearTimeout(dueTimer.current);
+      const gen = ++followGen.current;
       queuedRef.current = upcoming.length > 0;
       setQueued(upcoming.length > 0);
-      if (upcoming.length === 0) return;
+      if (upcoming.length === 0 || !alive.current) return;
       dueTimer.current = setTimeout(async () => {
         try {
           const c = await api.chat();
+          // The page closed, or a newer reply took over following, while this was loading.
+          if (!alive.current || gen !== followGen.current) return;
           applyServer(c.messages);
           if (c.upcoming.length) {
             setPaused(true);
@@ -118,7 +137,7 @@ export function ChatPage() {
           follow(c.upcoming);
           if (!c.upcoming.length) replyIfUnanswered();
         } catch {
-          follow(upcoming.map(() => 3000));
+          if (alive.current && gen === followGen.current) follow(upcoming.map(() => 3000));
         }
       }, Math.max(0, Math.min(...upcoming)) + DUE_SLACK_MS);
     },
@@ -134,6 +153,7 @@ export function ChatPage() {
     let ok = false;
     try {
       const res = await api.reply();
+      if (!alive.current) return;
       applyServer(res.messages);
       follow(res.upcoming);
       ok = true;
@@ -147,13 +167,13 @@ export function ChatPage() {
       replying.current = false;
     }
     // Anything sent while Alisa was answering gets its own reply.
-    if (ok) replyIfUnanswered();
+    if (ok && alive.current) replyIfUnanswered();
   }, [applyServer, follow, replyIfUnanswered]);
 
   const scheduleReply = useCallback(
     (delay = REPLY_DELAY_MS) => {
       clearTimeout(replyTimer.current);
-      replyTimer.current = setTimeout(runReply, delay);
+      if (alive.current) replyTimer.current = setTimeout(runReply, delay);
     },
     [runReply],
   );
@@ -162,12 +182,13 @@ export function ChatPage() {
   // ---- Loading ------------------------------------------------------------
 
   useEffect(() => {
-    let alive = true;
+    alive.current = true;
     Promise.all([api.chat(), api.stories()])
       .then(([c, s]) => {
-        if (!alive) return;
+        if (!alive.current) return;
         const { messages: list, upcoming, ...rest } = c;
         setChat(rest);
+        fetchedAt.current = Date.now();
         messagesRef.current = list;
         setMessages(list);
         setStories(s.stories);
@@ -175,24 +196,51 @@ export function ChatPage() {
         if (upcoming.length) follow(upcoming);
         else if (needsReply(list)) scheduleReply(300);
       })
-      .catch((err) => alive && setLoadError(err instanceof ApiError ? err.message : 'Couldn’t load the chat.'));
-    const refreshStories = setInterval(() => api.stories().then((s) => alive && setStories(s.stories)).catch(() => {}), 5 * 60_000);
+      .catch((err) => alive.current && setLoadError(err instanceof ApiError ? err.message : 'Couldn’t load the chat.'));
+
+    const refreshStories = () => api.stories().then((s) => alive.current && setStories(s.stories)).catch(() => {});
+    // Fresh photo links for a tab that's been open (or in the background) a while. Only while
+    // Alisa isn't mid-reply: her own fetches already bring fresh links then.
+    const refreshIfStale = () => {
+      if (document.hidden || Date.now() - fetchedAt.current < STALE_MS) return;
+      refreshStories();
+      if (replying.current || queuedRef.current) return;
+      fetchedAt.current = Date.now();
+      api
+        .chat()
+        .then((c) => alive.current && !replying.current && !queuedRef.current && applyServer(c.messages))
+        .catch(() => {});
+    };
+    const every5min = setInterval(() => {
+      refreshStories();
+      refreshIfStale();
+    }, 5 * 60_000);
+    document.addEventListener('visibilitychange', refreshIfStale);
     return () => {
-      alive = false;
-      clearInterval(refreshStories);
+      alive.current = false;
+      clearInterval(every5min);
+      document.removeEventListener('visibilitychange', refreshIfStale);
       clearTimeout(replyTimer.current);
       clearTimeout(dueTimer.current);
       clearTimeout(pauseTimer.current);
     };
-  }, [scheduleReply, follow]);
+  }, [scheduleReply, follow, applyServer]);
 
   // ---- Scrolling ------------------------------------------------------------
 
+  // Whether new messages should scroll into view: only while the visitor is at the bottom (or
+  // has just sent something), never while they're reading further up.
+  const pinned = useRef(true);
+  // Set during our own smooth scroll down, whose in-between positions aren't the visitor's doing.
+  const autoScrolling = useRef(false);
   const firstScroll = useRef(true);
   useLayoutEffect(() => {
     const el = listRef.current;
     if (!el || messages.length === 0) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: firstScroll.current ? 'auto' : 'smooth' });
+    if (!firstScroll.current && !pinned.current) return;
+    const behavior = firstScroll.current ? 'auto' : scrollBehavior();
+    autoScrolling.current = behavior === 'smooth' && el.scrollHeight - el.scrollTop - el.clientHeight > 2;
+    el.scrollTo({ top: el.scrollHeight, behavior });
     firstScroll.current = false;
   }, [messages.length, typing, replyError]);
 
@@ -215,7 +263,29 @@ export function ChatPage() {
     const observer = new ResizeObserver(measure);
     observer.observe(header);
     observer.observe(bottom);
-    return () => observer.disconnect();
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    const distance = () => thread.scrollHeight - thread.scrollTop - thread.clientHeight;
+    const onScroll = () => {
+      if (autoScrolling.current) {
+        // Done once it reaches the bottom, or shortly after it stops moving (the visitor may
+        // have scrolled away mid-way, so look again then).
+        clearTimeout(settle);
+        if (distance() < 2) autoScrolling.current = false;
+        else
+          settle = setTimeout(() => {
+            autoScrolling.current = false;
+            pinned.current = distance() < NEAR_BOTTOM_PX;
+          }, 200);
+        return;
+      }
+      pinned.current = distance() < NEAR_BOTTOM_PX;
+    };
+    thread.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      observer.disconnect();
+      thread.removeEventListener('scroll', onScroll);
+      clearTimeout(settle);
+    };
   }, [loaded]);
 
   useScrollGradient(listRef, messages);
@@ -234,7 +304,7 @@ export function ChatPage() {
   const jumpTo = (id: number) => {
     const el = document.getElementById(`msg-${id}`);
     if (!el) return;
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.scrollIntoView({ block: 'center', behavior: scrollBehavior() });
     el.classList.remove('flash');
     void el.offsetWidth;
     el.classList.add('flash');
@@ -261,6 +331,8 @@ export function ChatPage() {
     };
     setSeenNow(false);
     setReplyError(null);
+    // Sending something always shows it, even from further up the chat.
+    pinned.current = true;
     setMessages((cur) => [...cur, temp]);
     return temp;
   };
@@ -272,6 +344,8 @@ export function ChatPage() {
       try {
         const { message } = await send();
         retryPayload.current.delete(temp.id);
+        // The photo now comes from the server; the local preview isn't needed any more.
+        if (temp.photo?.url?.startsWith('blob:')) URL.revokeObjectURL(temp.photo.url);
         setMessages((cur) => cur.map((m) => (m.id === temp.id ? message : m)));
         messagesRef.current = messagesRef.current.map((m) => (m.id === temp.id ? message : m));
         scheduleReply();
@@ -312,6 +386,8 @@ export function ChatPage() {
         maxViews: mode === 'once' ? 1 : mode === 'replay' ? 2 : null,
       },
     });
+    // Only a kept photo shows its preview in the chat while sending.
+    if (mode !== 'keep') URL.revokeObjectURL(image.url);
     deliver(temp, () => api.sendPhoto(image.blob, mode, quoted?.id));
   };
 
@@ -345,7 +421,7 @@ export function ChatPage() {
       setViewer({ message: m, opened });
     } catch (err) {
       setReplyError(err instanceof ApiError ? err.message : 'That photo couldn’t be opened.');
-      api.chat().then((c) => setMessages((cur) => [...c.messages, ...cur.filter((x) => x.pending)])).catch(() => {});
+      api.chat().then((c) => alive.current && applyServer(c.messages)).catch(() => {});
     }
   };
 
@@ -359,6 +435,8 @@ export function ChatPage() {
     const urls = [...stories.filter((s) => !s.seen), ...stories.filter((s) => s.seen)]
       .map((s) => (s.kind === 'photo' ? s.mediaUrl : null))
       .filter((u): u is string => !!u);
+    // Links are re-signed hourly; drop pictures kept for links no story uses any more.
+    forgetPreloadsExcept(urls);
     (async () => {
       for (const url of urls) {
         if (cancelled) return;

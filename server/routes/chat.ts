@@ -151,6 +151,7 @@ export function chatRoutes({ db, config, media, replies, aiConnected, budget, se
   app.delete('/', async (c) => {
     const conversationId = conversationFor(db, c.get('visitor').id);
     const uploads = ownedUploads(listMessages(db, conversationId, 1_000_000));
+    replies.drop(conversationId);
     db.prepare('DELETE FROM conversations WHERE id = ?').run(conversationId);
     await Promise.all(uploads.map((k) => media.remove(k).catch(() => {})));
     return c.json(await chatState(conversationFor(db, c.get('visitor').id)));

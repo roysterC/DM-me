@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { PersonaDTO } from '../../shared/types';
+import { ApiError } from '../api';
 import { Avatar, type RingState } from './Avatar';
 
 interface Props {
@@ -14,6 +15,7 @@ interface Props {
 export function InfoSheet({ persona, ring, onViewStory, onDeleteChat, onClose }: Props) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -23,8 +25,11 @@ export function InfoSheet({ persona, ring, onViewStory, onDeleteChat, onClose }:
 
   const remove = async () => {
     setBusy(true);
+    setError(null);
     try {
       await onDeleteChat();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Couldn’t delete the chat. Try again.');
     } finally {
       setBusy(false);
     }
@@ -56,6 +61,11 @@ export function InfoSheet({ persona, ring, onViewStory, onDeleteChat, onClose }:
           {confirming ? (
             <>
               <p className="sheet-note">This deletes every message and photo in this chat. It can’t be undone.</p>
+              {error && (
+                <p className="sheet-note form-error" role="alert">
+                  {error}
+                </p>
+              )}
               <button type="button" className="sheet-btn danger" onClick={remove} disabled={busy}>
                 {busy ? 'Deleting…' : 'Delete chat'}
               </button>

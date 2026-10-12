@@ -7,6 +7,11 @@ type Turn = Anthropic.MessageParam;
 type ImageMime = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
 
 const MAX_IMAGES = 12;
+/**
+ * Photo bytes sent to Claude per reply, newest first. Requests are capped at 32 MB and images
+ * travel as base64 (a third bigger); photos past this are mentioned instead of attached.
+ */
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const QUOTE_CHARS = 140;
 
 /** How Alisa refers to one of the visitor's messages, e.g. to quote-reply to it. */
@@ -45,8 +50,10 @@ export async function buildConversation(
   const byId = new Map(rows.map((r) => [r.id, r]));
   const find = (id: number) => byId.get(id) ?? lookup?.(id);
 
-  // Decide which user photos are shown as images, newest first, within the cap.
+  // Decide which user photos are shown as images, newest first, within the caps. A view-once
+  // photo that doesn't fit stays unopened for the next reply.
   const images = new Map<number, Uint8Array>();
+  let bytes = 0;
   for (let i = rows.length - 1; i >= 0; i--) {
     const r = rows[i];
     if (r.sender !== 'user' || r.kind !== 'photo' || !r.media_key) continue;
@@ -54,7 +61,8 @@ export async function buildConversation(
     if (ephemeral && r.view_count > 0) continue;
     if (!ephemeral && images.size >= MAX_IMAGES) continue;
     const data = await media.read(r.media_key);
-    if (!data) continue;
+    if (!data || bytes + data.byteLength > MAX_IMAGE_BYTES) continue;
+    bytes += data.byteLength;
     images.set(r.id, data);
     if (ephemeral) opening.push(r.id);
   }
@@ -99,12 +107,12 @@ function userBlocks(
   find: (id: number) => MessageRow | undefined,
 ): Block[] {
   const stamp = `[${messageRef(r.id)} · ${formatStamp(r.created_at, timeZone)}] ${quoteNote(r, find)}`.trimEnd();
-  if (r.kind === 'text') return [{ type: 'text', text: `${stamp} ${r.text ?? ''}` }];
+  if (r.kind === 'text') return [{ type: 'text', text: `${stamp} ${visitorText(r.text)}` }];
 
   if (r.kind === 'story_reply') {
     const story = r.story_snapshot ? (JSON.parse(r.story_snapshot) as { caption?: string | null }) : {};
     const caption = story.caption ? `"${story.caption}"` : '(no caption)';
-    return [{ type: 'text', text: `${stamp} (replied to your story ${caption}) ${r.text ?? ''}` }];
+    return [{ type: 'text', text: `${stamp} (replied to your story ${caption}) ${visitorText(r.text)}` }];
   }
 
   const ephemeral = r.photo_mode !== 'keep';
@@ -128,6 +136,14 @@ function userBlocks(
     ? `${stamp} (sent a view-once photo that you already viewed)`
     : `${stamp} (sent a photo earlier in the chat; it's no longer attached)`;
   return [{ type: 'text', text: note }];
+}
+
+/**
+ * What the visitor typed, with anything shaped like our "[m12 · Mon 9:41 PM]" markers defused,
+ * so they can't pass off made-up messages as real ones.
+ */
+export function visitorText(text: string | null): string {
+  return (text ?? '').replace(/\[(\s*m\d+\s*·)/g, '($1');
 }
 
 function lastUserRow(rows: MessageRow[], beforeIndex: number): MessageRow | null {

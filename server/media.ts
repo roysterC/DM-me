@@ -13,6 +13,8 @@ export const MAX_UPLOAD_BYTES = 10 * MB;
  */
 export const MAX_VISITOR_PHOTO_BYTES = 5 * MB;
 
+const MAX_EDGE_PX = 8000;
+
 const tooLarge = (max: number) => new MediaError(`That photo is too large (${max / MB} MB max).`);
 
 export type ImageMime = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
@@ -71,6 +73,10 @@ export class MediaStore {
     const mime = sniffImage(data);
     if (!mime) throw new MediaError('Only JPEG, PNG, WebP or GIF photos can be sent.');
     const { width, height } = dimensions(data);
+    // Claude won't take images with a side over 8000px, and one in the chat would fail every reply.
+    if ((width ?? 0) > MAX_EDGE_PX || (height ?? 0) > MAX_EDGE_PX) {
+      throw new MediaError(`That photo is too big (${MAX_EDGE_PX}px on a side at most).`);
+    }
     const key = `${prefix}/${crypto.randomBytes(12).toString('hex')}.${EXT[mime]}`;
     await this.storage.put(key, data, mime);
     return { key, mime, width, height };
@@ -103,6 +109,12 @@ export class MediaStore {
 
   private remember(key: string, data: Uint8Array) {
     if (data.byteLength > CACHE_BYTES / 4) return;
+    // Two reads of the same photo can both miss and both land here; count it once.
+    const existing = this.cache.get(key);
+    if (existing) {
+      this.cache.delete(key);
+      this.cacheBytes -= existing.byteLength;
+    }
     this.cache.set(key, data);
     this.cacheBytes += data.byteLength;
     for (const [k, v] of this.cache) {
