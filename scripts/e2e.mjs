@@ -33,9 +33,12 @@ const shot = async (name) => {
 };
 const step = (label) => console.log(`- ${label}`);
 
-step('open the chat (no sign-up)');
+step('open the chat (no sign-up); story photos start downloading straight away');
+const isStoryPhoto = (r) => r.url().includes('/api/media/f') && decodeURIComponent(r.url()).includes('asset:coffee.jpg');
+const storyPreloaded = page.waitForRequest(isStoryPhoto, { timeout: 10_000 });
 await page.goto(base);
 await page.getByRole('heading', { name: 'Alisa' }).waitFor();
+await storyPreloaded;
 await shot('02-chat-empty');
 
 step('text burst gets one reply');
@@ -195,6 +198,24 @@ const shotPhone = async (name) => {
   await tp.screenshot({ path: path.join(out, `${name}.png`) });
 };
 
+step('phone: a slow story photo shows a spinner, and its timer waits for it');
+await tp.route('**/api/media/f**', async (route) => {
+  await new Promise((r) => setTimeout(r, 2500));
+  await route.continue();
+});
+await tp.goto(base);
+await tp.getByRole('button', { name: 'View Alisa’s story' }).first().click();
+const storyLoading = tp.getByRole('status', { name: 'Loading story' });
+await storyLoading.waitFor({ timeout: 2000 });
+const timerState = () => tp.locator('.timer-run').evaluate((el) => getComputedStyle(el).animationPlayState);
+if ((await timerState()) !== 'paused') throw new Error('The story timer should wait while the photo loads');
+await shotPhone('17b-phone-story-loading');
+await storyLoading.waitFor({ state: 'detached', timeout: 10_000 });
+if ((await timerState()) !== 'running') throw new Error('The story timer should start once the photo shows');
+await tp.getByRole('button', { name: 'Close story' }).click();
+// Preloads may still be waiting in the slowed route; drop them quietly.
+await tp.unrouteAll({ behavior: 'ignoreErrors' });
+
 step('phone: a long chat scrolls under the translucent bars, bubbles shade purple to blue');
 await tp.goto(base);
 await tp.getByRole('heading', { name: 'Alisa' }).waitFor();
@@ -203,8 +224,19 @@ for (const text of ['hey', 'so i had the weirdest day', 'like genuinely', 'my em
   await tInput.press('Enter');
 }
 await tp.getByText('You said: hey so i had').waitFor({ timeout: 15_000 });
-const blur = await tp.locator('.chat-header').evaluate((el) => getComputedStyle(el).backdropFilter || getComputedStyle(el).webkitBackdropFilter);
-if (!/blur/.test(blur)) throw new Error(`Header isn't blurred: ${blur}`);
+// The top fades like iOS: three blur bands that weaken downwards, each masked, under a darkening ramp.
+const bands = await tp.locator('.top-fade > span').evaluateAll((els) =>
+  els.map((el) => {
+    const s = getComputedStyle(el);
+    return { blur: s.backdropFilter || s.webkitBackdropFilter, mask: s.maskImage || s.webkitMaskImage, bg: s.backgroundImage };
+  }),
+);
+const radii = bands.slice(0, 3).map((b) => Number(/blur\((\d+)px\)/.exec(b.blur)?.[1]));
+if (radii.join() !== '16,8,3' || !bands.slice(0, 3).every((b) => /gradient/.test(b.mask)) || !/gradient/.test(bands[3].bg)) {
+  throw new Error(`Top fade isn't set up as expected: ${JSON.stringify(bands)}`);
+}
+// Only the photo and the info button take taps; the name is a plain label.
+if (await tp.locator('.chat-header .header-title').evaluate((el) => el.tagName !== 'DIV')) throw new Error('The header name should not be a button');
 const fillY = (text) => tp.getByText(text, { exact: true }).evaluate((el) => getComputedStyle(el).backgroundPositionY);
 const topY = await fillY('hey');
 const bottomY = await fillY('how r u');

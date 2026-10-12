@@ -17,7 +17,8 @@
   --spent-line: #c7c7c7;
   /* The top and bottom bars: see-through, with the chat blurred behind. */
   --bar-bg: rgba(255, 255, 255, 0.72);
-  --header-bg: var(--bar-bg);
+  /* The colour the top of the chat fades towards (as r, g, b). */
+  --fade-rgb: 255, 255, 255;
   --quote-bg: #f2f2f2;
   --quote-fg: var(--muted);
   --quote-bar: #dbdbdb;
@@ -41,8 +42,7 @@
     --ring-seen: #4a4e55;
     --spent-line: #3a3e45;
     --bar-bg: rgba(12, 15, 20, 0.78);
-    /* The top bar darkens to black behind the status bar and fades into the chat below. */
-    --header-bg: linear-gradient(180deg, rgba(0, 0, 0, 0.94) 0%, rgba(6, 8, 11, 0.86) 55%, rgba(12, 15, 20, 0.62) 100%);
+    --fade-rgb: 0, 0, 0;
     --quote-bg: #181c21;
     --quote-fg: #939597;
     --quote-bar: #25282e;
@@ -257,13 +257,60 @@ a {
   padding-top: env(safe-area-inset-top);
   border-bottom: 0;
 }
-.chat-header.floating,
 .bottom-bar {
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
 }
-.chat-header.floating {
-  background: var(--header-bg);
+/*
+ * The top of the chat works like iOS's scroll edge effect, measured from Instagram: messages
+ * blur more and darken the higher they go under the bar, with no edge anywhere. Three blur
+ * bands (16px, 8px, 3px), each fading into the next, so the blur itself weakens towards the
+ * bottom; then a darkening ramp, solid at the very top and gone by the bottom. None of it
+ * takes taps.
+ */
+.top-fade {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  height: calc(100px + env(safe-area-inset-top));
+  pointer-events: none;
+}
+.top-fade > span {
+  position: absolute;
+  inset: 0;
+}
+.top-fade .blur-top {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 58%, transparent 76%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 58%, transparent 76%);
+}
+.top-fade .blur-mid {
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  -webkit-mask-image: linear-gradient(180deg, transparent 52%, #000 64%, #000 74%, transparent 88%);
+  mask-image: linear-gradient(180deg, transparent 52%, #000 64%, #000 74%, transparent 88%);
+}
+.top-fade .blur-low {
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  -webkit-mask-image: linear-gradient(180deg, transparent 70%, #000 80%, #000 88%, transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 70%, #000 80%, #000 88%, transparent 100%);
+}
+.top-fade .dim {
+  background: linear-gradient(
+    180deg,
+    rgba(var(--fade-rgb), 1) 0%,
+    rgba(var(--fade-rgb), 1) 18%,
+    rgba(var(--fade-rgb), 0.75) 40%,
+    rgba(var(--fade-rgb), 0.5) 56%,
+    rgba(var(--fade-rgb), 0.33) 72%,
+    rgba(var(--fade-rgb), 0.25) 80%,
+    rgba(var(--fade-rgb), 0.08) 88%,
+    rgba(var(--fade-rgb), 0) 100%
+  );
 }
 /* Instagram's dark header buttons: a faint glass circle. */
 @media (prefers-color-scheme: dark) {
@@ -276,7 +323,6 @@ a {
   background: var(--bar-bg);
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .chat-header.floating,
   .bottom-bar {
     background: var(--bg);
   }
@@ -873,6 +919,34 @@ a {
   height: 100%;
   object-fit: cover;
 }
+/* Shown over a story or photo that's still downloading; its timer waits meanwhile. */
+.story-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #ffffff;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+
 .story-text {
   position: absolute;
   inset: 0;

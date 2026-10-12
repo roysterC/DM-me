@@ -10,6 +10,7 @@ import { Lightbox, PhotoViewer } from '../components/PhotoViewer';
 import { SendPhotoSheet } from '../components/SendPhotoSheet';
 import { StoryViewer } from '../components/StoryViewer';
 import { prepareImage, type PreparedImage } from '../lib/image';
+import { preloadImage } from '../lib/preload';
 import { buildThread, type UiMessage } from '../lib/thread';
 import { seenLabel } from '../lib/time';
 import { useScrollGradient } from '../lib/useScrollGradient';
@@ -343,6 +344,25 @@ export function ChatPage() {
 
   // ---- Stories --------------------------------------------------------------
 
+  // Fetch story photos as soon as the list arrives so they're ready by the time someone taps
+  // the ring, instead of loading onto a black screen. One at a time, the first unseen story
+  // first, so on a slow connection the one they'll see first isn't sharing the bandwidth.
+  useEffect(() => {
+    let cancelled = false;
+    const urls = [...stories.filter((s) => !s.seen), ...stories.filter((s) => s.seen)]
+      .map((s) => (s.kind === 'photo' ? s.mediaUrl : null))
+      .filter((u): u is string => !!u);
+    (async () => {
+      for (const url of urls) {
+        if (cancelled) return;
+        await preloadImage(url);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [stories.map((s) => s.mediaUrl).join()]);
+
   const ring: RingState = stories.length === 0 ? 'none' : stories.every((s) => s.seen) ? 'seen' : 'unseen';
   const openStories = () => {
     if (stories.length === 0) return;
@@ -389,6 +409,13 @@ export function ChatPage() {
 
   return (
     <div className="phone" ref={phoneRef}>
+      {/* Messages blur and darken as they slide under the top bar (see .top-fade). */}
+      <div className="top-fade" aria-hidden="true">
+        <span className="blur-top" />
+        <span className="blur-mid" />
+        <span className="blur-low" />
+        <span className="dim" />
+      </div>
       <header className="chat-header floating" ref={headerRef}>
         <div className="header-avatar">
           <Avatar
@@ -400,10 +427,11 @@ export function ChatPage() {
             label={ring === 'none' ? `About ${persona.name}` : `View ${persona.name}’s story`}
           />
         </div>
-        <button type="button" className="header-title" onClick={() => setInfo(true)}>
+        {/* Just a label: only the profile photo and the info button respond to taps. */}
+        <div className="header-title">
           <span className="header-name">{persona.name}</span>
           <span className="header-status">{typing ? 'typing…' : aiConnected ? 'Active now' : 'Offline'}</span>
-        </button>
+        </div>
         <button type="button" className="icon-btn" onClick={() => setInfo(true)} aria-label={`About ${persona.name}`}>
           <IconInfo size={26} />
         </button>

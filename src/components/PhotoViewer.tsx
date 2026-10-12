@@ -19,6 +19,8 @@ interface Props {
 export function PhotoViewer({ message, opened, persona, onClose, onReply, onToggleHeart }: Props) {
   const [held, setHeld] = useState(false);
   const [typing, setTyping] = useState(false);
+  // The countdown starts once the photo is on screen, not while it's still downloading.
+  const [loaded, setLoaded] = useState(false);
   const [text, setText] = useState('');
   const { consumeHold, ...holdHandlers } = useHoldToPause(setHeld);
 
@@ -45,12 +47,23 @@ export function PhotoViewer({ message, opened, persona, onClose, onReply, onTogg
   return (
     <div className="overlay photo-viewer" role="dialog" aria-modal="true" aria-label={`Photo from ${persona.name}`}>
       <div className="story-stage">
-        <img className="story-media" src={opened.url} alt={`Photo from ${persona.name}`} />
+        <img
+          className="story-media"
+          src={opened.url}
+          alt={`Photo from ${persona.name}`}
+          onLoad={() => setLoaded(true)}
+          onError={() => setLoaded(true)}
+        />
         <div className="story-scrim" />
+        {!loaded && (
+          <div className="story-loading" role="status" aria-label="Loading photo">
+            <span className="spinner" />
+          </div>
+        )}
         <button type="button" className="tap-zone tap-all" aria-label="Hold to pause" {...holdHandlers} onClick={() => consumeHold()} />
         <div className="story-top">
           <div className="timer-row">
-            <TimerBar state="active" seconds={opened.seconds} paused={held || typing} onDone={onClose} />
+            <TimerBar state="active" seconds={opened.seconds} paused={held || typing || !loaded} onDone={onClose} />
           </div>
           <div className="viewer-head">
             <Avatar persona={persona} size={32} />

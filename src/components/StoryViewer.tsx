@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { PersonaDTO, StoryDTO } from '../../shared/types';
+import { preloadImage } from '../lib/preload';
 import { shortAge } from '../lib/time';
 import { Avatar } from './Avatar';
 import { IconClose, IconHeart, IconSend } from './Icons';
@@ -23,11 +24,18 @@ export function StoryViewer({ stories, startIndex, persona, seconds = 5, onClose
   const [typing, setTyping] = useState(false);
   const [text, setText] = useState('');
   const [toast, setToast] = useState<string | null>(null);
+  // The id of the story whose photo has finished loading. Until then a spinner shows and
+  // the timer waits, so a slow download never eats into the story's time.
+  const [loadedId, setLoadedId] = useState<number | null>(null);
   const story = stories[index];
-  const paused = held || typing || !!toast;
+  const loading = !!story && story.kind === 'photo' && !!story.mediaUrl && loadedId !== story.id;
+  const paused = held || typing || !!toast || loading;
 
   useEffect(() => {
     if (story) onSeen(story);
+    // Get the next one ready while this one plays.
+    const upNext = stories[index + 1];
+    if (upNext?.kind === 'photo' && upNext.mediaUrl) void preloadImage(upNext.mediaUrl);
   }, [story?.id]);
 
   const next = () => (index < stories.length - 1 ? setIndex(index + 1) : onClose());
@@ -66,7 +74,15 @@ export function StoryViewer({ stories, startIndex, persona, seconds = 5, onClose
     <div className="overlay story-viewer" role="dialog" aria-modal="true" aria-label={`${persona.name}’s story`}>
       <div className="story-stage">
         {story.kind === 'photo' && story.mediaUrl ? (
-          <img className="story-media" src={story.mediaUrl} alt={story.caption ?? `${persona.name}’s story`} />
+          <img
+            key={story.id}
+            className="story-media"
+            src={story.mediaUrl}
+            alt={story.caption ?? `${persona.name}’s story`}
+            onLoad={() => setLoadedId(story.id)}
+            // A photo that won't load still gets its turn (and a way past it) rather than stalling.
+            onError={() => setLoadedId(story.id)}
+          />
         ) : (
           <div className={`story-text bg-${story.bg ?? 'violet'}`}>
             <p>{story.caption}</p>
@@ -78,6 +94,11 @@ export function StoryViewer({ stories, startIndex, persona, seconds = 5, onClose
           </div>
         )}
         <div className="story-scrim" />
+        {loading && (
+          <div className="story-loading" role="status" aria-label="Loading story">
+            <span className="spinner" />
+          </div>
+        )}
 
         <button
           type="button"
