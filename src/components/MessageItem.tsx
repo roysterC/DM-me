@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { memo, useRef } from 'react';
 import type { PersonaDTO, ReplyRefDTO } from '../../shared/types';
 import { bubbleRadius, type UiMessage } from '../lib/thread';
 import { clockTime } from '../lib/time';
@@ -20,7 +20,8 @@ interface Props {
   onJumpTo: (id: number) => void;
 }
 
-export function MessageItem({ message: m, persona, joinPrev, joinNext, showAvatar, ...on }: Props) {
+/** One message row. Memoized: with stable callbacks, a new message doesn't re-render the rest. */
+export const MessageItem = memo(function MessageItem({ message: m, persona, joinPrev, joinNext, showAvatar, ...on }: Props) {
   const mine = m.sender === 'user';
   const radius = bubbleRadius(m.sender, joinPrev, joinNext);
   const lastTap = useRef(0);
@@ -104,7 +105,7 @@ export function MessageItem({ message: m, persona, joinPrev, joinNext, showAvata
       </time>
     </div>
   );
-}
+});
 
 /** "You replied to Alisa" and a faded copy of what was quoted; tap it to jump there. */
 function ReplyQuote(props: { quoted: ReplyRefDTO; mine: boolean; name: string; onJump: (id: number) => void }) {

@@ -1,0 +1,714 @@
+/* ---------- Avatar ---------- */
+
+.avatar {
+  position: relative;
+  flex: none;
+  display: inline-block;
+}
+.avatar-ring {
+  display: block;
+  border-radius: 50%;
+}
+.ring-unseen {
+  background: var(--ring);
+}
+.ring-seen {
+  background: var(--ring-seen);
+}
+.avatar-face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border-style: solid;
+  border-color: var(--bg);
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--persona);
+}
+.avatar-active {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #2bc24a;
+  border: 2px solid var(--bg);
+}
+
+/* ---------- Header ---------- */
+
+.chat-header {
+  height: 60px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--line);
+}
+/* On the chat, the header floats over the messages, which scroll faintly visible behind it. */
+.chat-header.floating {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  height: calc(60px + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
+  border-bottom: 0;
+}
+.bottom-bar {
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+/*
+ * The top of the chat works like iOS's scroll edge effect, measured from Instagram: messages
+ * blur more and darken the higher they go under the bar, with no edge anywhere. Three blur
+ * bands (16px, 8px, 3px), each fading into the next, so the blur itself weakens towards the
+ * bottom; then a darkening ramp, solid at the very top and gone by the bottom. None of it
+ * takes taps.
+ */
+.top-fade {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  height: calc(100px + env(safe-area-inset-top));
+  pointer-events: none;
+}
+.top-fade > span {
+  position: absolute;
+  inset: 0;
+}
+.top-fade .blur-top {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 58%, transparent 76%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 58%, transparent 76%);
+}
+.top-fade .blur-mid {
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  -webkit-mask-image: linear-gradient(180deg, transparent 52%, #000 64%, #000 74%, transparent 88%);
+  mask-image: linear-gradient(180deg, transparent 52%, #000 64%, #000 74%, transparent 88%);
+}
+.top-fade .blur-low {
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  -webkit-mask-image: linear-gradient(180deg, transparent 70%, #000 80%, #000 88%, transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 70%, #000 80%, #000 88%, transparent 100%);
+}
+.top-fade .dim {
+  background: linear-gradient(
+    180deg,
+    rgba(var(--fade-rgb), 1) 0%,
+    rgba(var(--fade-rgb), 1) 18%,
+    rgba(var(--fade-rgb), 0.75) 40%,
+    rgba(var(--fade-rgb), 0.5) 56%,
+    rgba(var(--fade-rgb), 0.33) 72%,
+    rgba(var(--fade-rgb), 0.25) 80%,
+    rgba(var(--fade-rgb), 0.08) 88%,
+    rgba(var(--fade-rgb), 0) 100%
+  );
+}
+/* Instagram's dark header buttons: a faint glass circle. */
+@media (prefers-color-scheme: dark) {
+  .chat-header.floating .icon-btn {
+    background: rgba(20, 23, 28, 0.7);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  }
+}
+.bottom-bar {
+  background: var(--bar-bg);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .bottom-bar {
+    background: var(--bg);
+  }
+}
+.header-avatar {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.header-title {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: left;
+  padding-left: 4px;
+}
+.header-name {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 21px;
+}
+.header-status {
+  font-size: 13px;
+  line-height: 17px;
+  color: var(--fg);
+}
+
+/* ---------- Thread ---------- */
+
+.thread {
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Vertical scrolling and pinch-zoom are the browser's; sideways drags are the chat's gestures. */
+  touch-action: pan-y pinch-zoom;
+  padding: calc(var(--top-h, 60px) + 16px) 8px calc(var(--bottom-h, 84px) + 8px);
+  display: flex;
+  flex-direction: column;
+  scrollbar-width: none;
+}
+.thread::-webkit-scrollbar {
+  display: none;
+}
+
+.intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 0 28px;
+  text-align: center;
+}
+.intro h1 {
+  margin: 8px 0 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+.intro p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.intro p.small {
+  font-size: 13px;
+}
+
+.separator {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 14px 0 6px;
+}
+
+.msg {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  transform: translateX(calc(var(--swipe, 0px) - var(--reveal, 0px)));
+}
+.thread.settling .msg,
+.msg.settling {
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.thread.settling .msg-time,
+.msg.settling .msg-swipe-icon {
+  transition: opacity 0.22s ease;
+}
+
+/* Each message's time, just off the right edge until the chat is swiped left. */
+.msg-time {
+  position: absolute;
+  top: 50%;
+  right: -64px;
+  width: 56px;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  opacity: var(--reveal-o, 0);
+  pointer-events: none;
+}
+
+/* The reply arrow that appears as a message is pulled right. */
+.msg-swipe-icon {
+  position: absolute;
+  top: 50%;
+  left: -36px;
+  display: flex;
+  color: var(--muted);
+  opacity: var(--swipe-o, 0);
+  transform: translateY(-50%) scale(calc(0.6 + 0.4 * var(--swipe-o, 0)));
+  pointer-events: none;
+}
+.swipe-armed .msg-swipe-icon {
+  color: var(--fg);
+}
+
+/* Reply button beside a message, for mouse and keyboard users. */
+.msg-reply-btn {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--muted);
+  opacity: 0;
+}
+.msg-reply-btn:focus-visible {
+  opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .msg:hover .msg-reply-btn {
+    opacity: 1;
+  }
+  .msg-reply-btn:hover {
+    background: var(--field);
+    color: var(--fg);
+  }
+}
+/* Touch screens reply by swiping; the button stays for screen readers (and shows if focused). */
+@media (hover: none) {
+  .msg-reply-btn:not(:focus-visible) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+}
+.msg-heart-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--field);
+  color: var(--fg);
+  font-size: 13px;
+}
+[role='dialog']:focus {
+  outline: none;
+}
+.msg-mine {
+  justify-content: flex-end;
+  padding-left: 64px;
+}
+.msg-theirs {
+  padding-left: 8px;
+  padding-right: 55px;
+  gap: 12px;
+}
+.msg-avatar {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  align-self: flex-end;
+}
+.msg-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+}
+.msg-mine .msg-col {
+  align-items: flex-end;
+}
+.msg-theirs .msg-col {
+  align-items: flex-start;
+}
+
+.bubble {
+  padding: 10px 14px;
+  font-size: 16px;
+  line-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.bubble-sent {
+  color: #ffffff;
+}
+.sent-fill {
+  background-color: #6343f1;
+  background-image: var(--sent);
+  background-repeat: no-repeat;
+  background-size: 100% var(--fill-h, 100vh);
+  background-position: 0 var(--fill-y, 0px);
+}
+.bubble-recv {
+  background: var(--recv);
+  color: var(--fg);
+}
+
+.msg-reaction {
+  position: relative;
+  margin: -7px 10px 2px;
+  padding: 2px 6px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  background: var(--field);
+  border: 2px solid var(--bg);
+}
+.msg-reaction:disabled {
+  cursor: default;
+}
+
+.msg-failed {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.photo-kept {
+  display: block;
+  width: 236px;
+  max-width: 100%;
+  overflow: hidden;
+  background: var(--field);
+}
+.photo-kept img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.eph {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px 8px 8px;
+  text-align: left;
+}
+.eph-sent {
+  color: #ffffff;
+}
+.eph-recv {
+  background: var(--recv);
+}
+.eph-spent {
+  border: 1px solid var(--spent-line);
+  color: var(--muted);
+}
+.eph-icon {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.eph-sent .eph-icon {
+  background: rgba(255, 255, 255, 0.22);
+}
+.eph-spent .eph-icon {
+  border: 1.5px solid var(--spent-line);
+}
+.eph-icon-live {
+  color: #ffffff;
+  background: var(--persona);
+}
+.eph-text {
+  display: flex;
+  flex-direction: column;
+}
+.eph-title {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 19px;
+}
+.eph-spent .eph-title {
+  font-weight: 600;
+}
+.eph-sub {
+  font-size: 12px;
+  line-height: 16px;
+}
+.eph-recv .eph-sub {
+  color: var(--muted);
+}
+
+.reply-quote {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+  margin-bottom: 4px;
+}
+.msg-mine .reply-quote {
+  align-items: flex-end;
+}
+.msg-theirs .reply-quote {
+  align-items: flex-start;
+}
+.reply-quote-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.reply-quote-text {
+  position: relative;
+  max-width: 100%;
+  padding: 9px 14px;
+  border-radius: 18px;
+  background: var(--quote-bg);
+  color: var(--quote-fg);
+  font-size: 14px;
+  line-height: 18px;
+  text-align: left;
+}
+/* Up to three lines of the quoted message. */
+.reply-quote-text span {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* The thin bar beside a quote, a little way off its outer edge like Instagram's. */
+.reply-quote-text::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--quote-bar);
+}
+.msg-mine .reply-quote-text {
+  margin-right: 15px;
+}
+.msg-mine .reply-quote-text::after {
+  right: -15px;
+}
+.msg-theirs .reply-quote-text {
+  margin-left: 15px;
+}
+.msg-theirs .reply-quote-text::after {
+  left: -15px;
+}
+
+/* A quoted message pulses when you jump to it. */
+.flash .bubble,
+.flash .eph,
+.flash .photo-kept {
+  animation: flash 1.2s ease;
+}
+@keyframes flash {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: none;
+  }
+  25% {
+    transform: scale(1.04);
+    filter: brightness(1.25);
+  }
+}
+
+.story-quote {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.story-quote-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.story-quote-thumb {
+  display: block;
+  width: 96px;
+  height: 160px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+.story-quote-text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  color: #ffffff;
+  overflow: hidden;
+}
+.story-quote-gone {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--spent-line);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.typing {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 22px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--recv);
+  color: var(--muted);
+}
+.typing span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: typing 1.2s infinite ease-in-out;
+}
+.typing span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+.seen {
+  text-align: right;
+  font-size: 12px;
+  padding: 4px 4px 0;
+  color: var(--muted);
+}
+
+.reply-error {
+  align-self: center;
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.reply-error button {
+  font-weight: 600;
+  color: var(--link);
+  padding: 8px 4px;
+}
+
+.bottom-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+}
+
+.reply-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 0 20px;
+}
+.reply-bar-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.reply-bar-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.reply-bar-snippet {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.offline-banner {
+  margin: 8px 12px 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 18px;
+  background: var(--field);
+  color: var(--muted);
+}
+.offline-banner code {
+  font-size: 12px;
+  color: var(--fg);
+}
+
+/* ---------- Composer ---------- */
+
+.composer {
+  flex: none;
+  padding: 8px 8px calc(12px + env(safe-area-inset-bottom));
+}
+.composer-pill {
+  min-height: 44px;
+  border-radius: 22px;
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 0;
+  background: var(--field);
+}
+.composer-pill input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: 0 6px;
+  font-size: 17px;
+}
+.composer-pill input::placeholder {
+  color: var(--muted);
+}
+.camera-btn {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.camera-btn span {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  background: var(--camera);
+}
+.send-text {
+  height: 44px;
+  padding: 0 14px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--link);
+}
+

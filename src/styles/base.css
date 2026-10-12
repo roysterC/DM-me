@@ -1,0 +1,199 @@
+:root {
+  --bg: #ffffff;
+  --page: #fafafa;
+  --fg: #0a0a0a;
+  --muted: #6b6b6b;
+  --field: #efefef;
+  --recv: #efefef;
+  --line: #dbdbdb;
+  --chip-line: #c7c7c7;
+  --link: #0064e0;
+  --danger: #c4001d;
+  --ring-seen: #c7c7c7;
+  /* Instagram's sent colour: magenta-purple at the top of the screen to indigo at the bottom. */
+  --sent: linear-gradient(180deg, #b03ccc 0%, #8e3bdf 35%, #6343f1 70%, #4a52f0 100%);
+  --persona: linear-gradient(135deg, #8a3ae8, #2f6bef);
+  --ring: linear-gradient(45deg, #feda75, #fa7e1e 30%, #d62976 60%, #962fbf 85%, #4f5bd5);
+  --spent-line: #c7c7c7;
+  /* The top and bottom bars: see-through, with the chat blurred behind. */
+  --bar-bg: rgba(255, 255, 255, 0.72);
+  /* The colour the top of the chat fades towards (as r, g, b). */
+  --fade-rgb: 255, 255, 255;
+  --quote-bg: #f2f2f2;
+  --quote-fg: var(--muted);
+  --quote-bar: #dbdbdb;
+  --camera: #5454f0;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Measured from Instagram's dark-mode chat (iOS): a blue-tinted near-black, not pure black. */
+    --bg: #0c0f14;
+    --page: #05070a;
+    --fg: #f8f9f9;
+    --muted: #a2a9b4;
+    --field: #1c1d1f;
+    --recv: #25282e;
+    --line: #25282e;
+    --chip-line: #3a3e45;
+    --link: #4cb5f9;
+    --danger: #ff6b6b;
+    --ring-seen: #4a4e55;
+    --spent-line: #3a3e45;
+    --bar-bg: rgba(12, 15, 20, 0.78);
+    --fade-rgb: 0, 0, 0;
+    --quote-bg: #181c21;
+    --quote-fg: #939597;
+    --quote-bar: #25282e;
+    color-scheme: dark;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--page);
+  color: var(--fg);
+  /* The device's own UI font, like Instagram: SF Pro on iPhone and Mac, Roboto on Android. */
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.sr-only,
+.until-focus:not(:focus-visible) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 13px;
+}
+.spacer {
+  flex: 1;
+}
+
+/* ---------- Shell ---------- */
+
+.app-shell {
+  height: 100dvh;
+  display: flex;
+  justify-content: center;
+}
+
+.phone {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+@media (min-width: 560px) {
+  .phone {
+    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+  }
+}
+
+.center-state {
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+}
+
+.icon-btn {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: inherit;
+}
+
+.primary-btn {
+  height: 44px;
+  padding: 0 20px;
+  border-radius: 10px;
+  font-weight: 600;
+  background: #0064e0;
+  color: #ffffff;
+}
+.primary-btn:disabled {
+  opacity: 0.6;
+}
+
+.soft-btn {
+  margin-top: 10px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--field);
+}
+
+.text-btn {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 6px;
+}
+.danger {
+  color: var(--danger);
+}
+

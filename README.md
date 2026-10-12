@@ -130,9 +130,12 @@ server/            Hono API on Node, SQLite via better-sqlite3
   routes/          chat, stories, media, admin
   assets/          sample photos
 src/               React web app (Vite)
-  pages/ChatPage   the conversation screen
+  pages/ChatPage   the conversation screen (layout and overlays)
+  lib/useChat      the chat's data: sending, Alisa's reply timing and "typing…", stories
+  lib/useChatScroll  stays at the newest message unless you're reading further up
   pages/AdminPage  camera roll and stories
-  components/      message bubbles, camera, send-photo sheet, photo and story viewers
+  components/      message bubbles, composer, camera, send-photo sheet, photo and story viewers
+  styles/          base, chat, overlays and admin styles (app.css imports them in order)
 shared/types.ts    API shapes used by both sides
 ```
 
