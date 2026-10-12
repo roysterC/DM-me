@@ -450,6 +450,24 @@ describe('photos', () => {
 });
 
 describe('stories', () => {
+  it('counts story replies toward the same sending limit as other messages', async () => {
+    const t = setup();
+    const me = t.browser();
+    const [story] = (await json<{ stories: StoryDTO[] }>(await me('GET', '/api/stories'))).stories;
+    for (let i = 0; i < 30; i++) await me('POST', '/api/chat/messages', { text: `msg ${i}` });
+    for (let i = 0; i < 30; i++) {
+      expect((await me('POST', `/api/stories/${story.id}/reply`, { text: `reply ${i}` })).status).toBe(200);
+    }
+    const over = await me('POST', `/api/stories/${story.id}/reply`, { text: 'one more' });
+    expect(over.status).toBe(429);
+    expect((await me('POST', '/api/chat/messages', { text: 'and a text' })).status).toBe(429);
+
+    // Each visitor has their own allowance.
+    const other = t.browser();
+    expect((await other('POST', `/api/stories/${story.id}/reply`, { text: 'hi' })).status).toBe(200);
+    expect((await other('POST', `/api/stories/${story.id}/reply`, { text: 'x'.repeat(2001) })).status).toBe(400);
+  });
+
   it('posts sample stories, tracks views and likes, and turns replies into DMs', async () => {
     const t = setup();
     const me = t.browser();

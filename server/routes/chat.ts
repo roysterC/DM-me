@@ -6,17 +6,15 @@ import type { Deps } from '../app';
 import { conversationFor, getMessage, listMessages, maxViews, ownedUploads, splitDue, toMessageDTO } from '../chat';
 import type { MessageRow } from '../db';
 import { nowIso } from '../db';
-import { type AppEnv, clientIp, RateLimiter } from '../identity';
+import { type AppEnv, clientIp, RateLimiter, SENDING_TOO_FAST } from '../identity';
 import { MAX_VISITOR_PHOTO_BYTES, MediaError } from '../media';
 import { activeStoryMap } from '../stories';
 
-const MAX_TEXT = 2000;
+export const MAX_TEXT = 2000;
 const MODES: PhotoMode[] = ['keep', 'once', 'replay'];
 
-export function chatRoutes({ db, config, media, replies, aiConnected, budget }: Deps) {
+export function chatRoutes({ db, config, media, replies, aiConnected, budget, sends }: Deps) {
   const app = new Hono<AppEnv>();
-  const sendsPerVisitor = new RateLimiter(60, 60_000);
-  const sendsPerIp = new RateLimiter(150, 60_000);
   const repliesPerVisitor = new RateLimiter(20, 60_000);
   const repliesPerIp = new RateLimiter(40, 60_000);
 
@@ -41,8 +39,6 @@ export function chatRoutes({ db, config, media, replies, aiConnected, budget }: 
     const row = getMessage(db, conversationId, id);
     return row && row.created_at <= nowIso() ? row.id : null;
   };
-  const canSend = (c: Parameters<typeof clientIp>[0], visitorId: number) =>
-    sendsPerVisitor.take(`v${visitorId}`) && sendsPerIp.take(clientIp(c));
 
   app.get('/', async (c) => c.json(await chatState(conversationFor(db, c.get('visitor').id))));
 
@@ -52,7 +48,7 @@ export function chatRoutes({ db, config, media, replies, aiConnected, budget }: 
     const text = String(body.text ?? '').trim();
     if (!text) return c.json({ error: 'Message is empty.' }, 400);
     if (text.length > MAX_TEXT) return c.json({ error: `Messages can be up to ${MAX_TEXT} characters.` }, 400);
-    if (!canSend(c, visitor.id)) return c.json({ error: 'You’re sending messages too fast.' }, 429);
+    if (!sends.take(c, visitor.id)) return c.json({ error: SENDING_TOO_FAST }, 429);
     const conversationId = conversationFor(db, visitor.id);
     const { lastInsertRowid } = db
       .prepare(
@@ -64,7 +60,7 @@ export function chatRoutes({ db, config, media, replies, aiConnected, budget }: 
 
   app.post('/photos', async (c) => {
     const visitor = c.get('visitor');
-    if (!canSend(c, visitor.id)) return c.json({ error: 'You’re sending messages too fast.' }, 429);
+    if (!sends.take(c, visitor.id)) return c.json({ error: SENDING_TOO_FAST }, 429);
     const form = await c.req.parseBody();
     if (!(form.photo instanceof File)) return c.json({ error: 'No photo attached.' }, 400);
     const mode = (MODES as string[]).includes(String(form.mode)) ? (String(form.mode) as PhotoMode) : 'keep';

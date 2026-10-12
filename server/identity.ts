@@ -141,3 +141,15 @@ export class RateLimiter {
     for (const [k, v] of this.hits) if (v.resetAt <= now) this.hits.delete(k);
   }
 }
+
+/** One limit for everything a visitor sends (texts, photos, story replies), per visitor and per IP address. */
+export class SendLimiter {
+  private perVisitor = new RateLimiter(60, 60_000);
+  private perIp = new RateLimiter(150, 60_000);
+
+  take(c: Context, visitorId: number): boolean {
+    return this.perVisitor.take(`v${visitorId}`) && this.perIp.take(clientIp(c));
+  }
+}
+
+export const SENDING_TOO_FAST = 'You’re sending messages too fast.';

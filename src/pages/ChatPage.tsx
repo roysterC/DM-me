@@ -79,7 +79,7 @@ export function ChatPage() {
   const pauseTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const replying = useRef(false);
   const nextTempId = useRef(-1);
-  const retryPayload = useRef(new Map<number, () => Promise<void>>());
+  const retryPayload = useRef(new Map<number, () => Promise<boolean>>());
   const scheduleReplyRef = useRef<(delay?: number) => void>(() => {});
   messagesRef.current = messages;
 
@@ -265,6 +265,7 @@ export function ChatPage() {
     return temp;
   };
 
+  /** Sends a message shown optimistically as `temp`; resolves to whether it went through. */
   const deliver = async (temp: UiMessage, send: () => Promise<{ message: UiMessage }>) => {
     const attempt = async () => {
       setMessages((cur) => cur.map((m) => (m.id === temp.id ? { ...m, pending: 'sending' } : m)));
@@ -274,12 +275,14 @@ export function ChatPage() {
         setMessages((cur) => cur.map((m) => (m.id === temp.id ? message : m)));
         messagesRef.current = messagesRef.current.map((m) => (m.id === temp.id ? message : m));
         scheduleReply();
+        return true;
       } catch {
         setMessages((cur) => cur.map((m) => (m.id === temp.id ? { ...m, pending: 'failed' } : m)));
+        return false;
       }
     };
     retryPayload.current.set(temp.id, attempt);
-    await attempt();
+    return attempt();
   };
 
   const sendText = (e: FormEvent) => {
@@ -389,7 +392,8 @@ export function ChatPage() {
       text: value,
       story: { id: story.id, kind: story.kind, caption: story.caption, bg: story.bg, thumbUrl: story.mediaUrl, available: true },
     });
-    await deliver(temp, () => api.replyToStory(story.id, value));
+    // The story viewer says "Couldn't send" instead of "Sent"; the reply stays in the chat to retry.
+    if (!(await deliver(temp, () => api.replyToStory(story.id, value)))) throw new Error('Couldn’t send');
   };
 
   // ---- Render ----------------------------------------------------------------
